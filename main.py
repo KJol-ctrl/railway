@@ -36,8 +36,10 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
-# Глобальный словарь для хранения данных пользователей
+# Глобальные словари для хранения данных пользователей
 user_data = {}
+message_counts = {}  # Словарь для подсчета сообщений пользователей
+MAX_MESSAGES = 5  # Максимальное количество сообщений
 
 # Класс состояний
 class Form(StatesGroup):
@@ -65,6 +67,12 @@ async def is_member(user_id: int) -> bool:
         return member.status in ["member", "administrator", "creator"]
     except Exception:
         return False
+
+async def check_message_limit(user_id: int) -> bool:
+    if user_id not in message_counts:
+        message_counts[user_id] = 0
+    message_counts[user_id] += 1
+    return message_counts[user_id] <= MAX_MESSAGES
 
 # Обработчик кнопки "Рест"
 @dp.message(F.text == "Рест")
@@ -151,30 +159,61 @@ async def user_joins_chat(update: types.ChatMemberUpdated):
     chat_id = update.chat.id
     if chat_id == GROUP_ID:
         if update.new_chat_member.status == "member" and user_id in user_data and not update.new_chat_member.user.is_bot:
-            role = user_data[user_id]["role"]
-            await bot.promote_chat_member(chat_id, user_id, can_change_info=False, can_delete_messages=False,
-                                          can_invite_users=False, can_restrict_members=False, can_pin_messages=True,
-                                          can_promote_members=False)
-            await bot.set_chat_administrator_custom_title(chat_id, user_id, role)
-            members = await bot.get_chat_administrators(chat_id)
-            tags = []
-            emojis = ["🔥", "⚡", "💥", "🚀", "🎯", "🔔", "🎉"]
-            for member in members:
-                if not member.user.is_bot and member.user.id != user_id and member.status in ["member", "administrator"]:
-                    if member.user.username:
-                        emoji = random.choice(emojis)
-                        tag = f"<a href='tg://user?id={member.user.id}'>{emoji}</a>"
-                        tags.append(tag)
-            mention_text = " ".join(tags)
-            await bot.send_message(
-                chat_id,
-                f'''📢 Новый участник: <b>{update.new_chat_member.user.full_name}</b>
+            try:
+                role = user_data[user_id]["role"]
+                await bot.promote_chat_member(chat_id, user_id, 
+                    can_change_info=False,
+                    can_delete_messages=False,
+                    can_invite_users=False,
+                    can_restrict_members=False,
+                    can_pin_messages=True,
+                    can_promote_members=False
+                )
+                await bot.set_chat_administrator_custom_title(chat_id, user_id, role)
+                user_data[user_id]["custom_title"] = role
+                
+                members = await bot.get_chat_administrators(chat_id)
+                tags = []
+                emojis = ["⭐️", "🌟", "💫", "⚡️", "🔥", "❤️", "🧡", "💛", "💚", "💙", "💜", "🤎", "🖤", "🤍", "💝", "💖", "💗", "💓", "💞", "💕", "❣️", "💌", "🌈", "✨", "🎯", "🎪", "🎨", "🎭", "🎪", "🎢", "🎡", "🎠", "🎪", "🌸", "🌺", "🌷", "🌹", "🌻", "🌼", "💐", "🌾", "🌿", "☘️", "🍀", "🍁", "🍂", "🍃", "🌵", "🌴", "🌳", "🌲", "🎄", "🌊", "🌈", "☀️", "🌤", "⛅️", "🌥", "☁️", "🌦", "🌧", "⛈", "🌩", "🌨", "❄️", "☃️", "⛄️", "🌬", "💨", "🌪", "🌫", "🌈", "☔️", "⚡️", "❄️", "🔮", "🎮", "🎲", "🎯", "🎳", "🎪", "🎭", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹", "🥁", "🎷", "🎺", "🎸", "🪕", "🎻", "🎲", "♟", "🎯", "🎳", "🎮", "🎰", "🧩", "🎪", "🎭", "🎨", "🖼", "🎨", "🧵", "🧶", "👑", "💎", "⚜️"]
+                
+                # Создаем или получаем словарь для хранения эмодзи пользователей
+                if 'user_emojis' not in user_data:
+                    user_data['user_emojis'] = {}
+                
+                for member in members:
+                    if not member.user.is_bot and member.user.id != user_id and member.status in ["member", "administrator"]:
+                        if member.user.username:
+                            # Получаем или назначаем уникальный эмодзи для пользователя
+                            if member.user.id not in user_data['user_emojis']:
+                                available_emojis = [e for e in emojis if e not in user_data['user_emojis'].values()]
+                                if available_emojis:
+                                    user_data['user_emojis'][member.user.id] = random.choice(available_emojis)
+                            
+                            emoji = user_data['user_emojis'].get(member.user.id, "👤")
+                            tag = f"<a href='tg://user?id={member.user.id}'>{emoji}</a>"
+                            tags.append(tag)
+                mention_text = " ".join(tags)
+                await bot.send_message(
+                    chat_id,
+                    f'''📢 Новый участник: <b>{update.new_chat_member.user.full_name}</b>
 🎭 Роль: <b>{role}</b>
 {mention_text}'''
-            )
-            await bot.send_message(user_id, "Ваша заявка одобрена. Теперь вы можете взаимодействовать с меню.", reply_markup=get_menu())
+                )
+                await bot.send_message(user_id, "Ваша заявка одобрена. Теперь вы можете взаимодействовать с меню.", reply_markup=get_menu())
+            except Exception as e:
+                logging.error(f"Ошибка при назначении роли: {e}")
+                for admin_id in ADMIN_IDS:
+                    await bot.send_message(admin_id, f"Ошибка при назначении роли пользователю {update.new_chat_member.user.full_name}: {str(e)}")
         elif update.new_chat_member.status in ["left", "kicked"]:
-            user_data.pop(user_id, None)
+            if user_id in user_data:
+                custom_title = user_data[user_id].get("custom_title", "Неизвестно")
+                leave_message = f"😢 Пользователь <b>{update.new_chat_member.user.full_name}</b> с ролью: <b>{custom_title}</b> покинул группу"
+                # Отправляем сообщение в группу
+                await bot.send_message(chat_id, leave_message)
+                # Отправляем сообщение админам
+                for admin_id in ADMIN_IDS:
+                    await bot.send_message(admin_id, leave_message)
+                user_data.pop(user_id, None)
 
 # Обработчик команды /start
 @dp.message(F.text.casefold() == "/start")
@@ -182,6 +221,9 @@ async def start_handler(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
         return  
     user_id = message.from_user.id
+    if not await is_member(user_id) and not await check_message_limit(user_id):
+        await message.answer("Вы исчерпали лимит сообщений. Вступите в группу, чтобы продолжить общение с ботом.")
+        return
     member = await bot.get_chat_member(GROUP_ID, user_id)
     if member.status in ["member", "administrator", "creator"]:
         await message.answer("Вы уже состоите в группе.", reply_markup=get_menu())
@@ -219,6 +261,12 @@ async def role_handler(message: types.Message, state: FSMContext):
 # Обработчик команд с животными
 @dp.message(F.text.startswith("/"))
 async def animal_photo(message: types.Message):
+    if message.chat.type != ChatType.PRIVATE:
+        return
+    user_id = message.from_user.id
+    if not await is_member(user_id) and not await check_message_limit(user_id):
+        await message.answer("Вы исчерпали лимит сообщений. Вступите в группу, чтобы продолжить общение с ботом.")
+        return
     animal = message.text[1:].lower()
     if UNSPLASH_ACCESS_KEY:
         try:
@@ -274,7 +322,7 @@ async def main():
             dp.message.register(back_to_menu, F.text == "Назад")
             dp.chat_member.register(user_joins_chat)
             dp.message.register(animal_photo, F.text.startswith("/"))
-            
+
             logging.info("Бот запущен")
             await dp.start_polling(bot)
         except Exception as e:
