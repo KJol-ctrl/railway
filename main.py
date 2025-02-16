@@ -1,5 +1,7 @@
 import pip
 
+pip.main(['install', 'flask'])
+pip.main(['install', 'pytelegrambotapi'])
 
 import logging
 import asyncio
@@ -191,6 +193,28 @@ async def start_handler(message: types.Message, state: FSMContext):
             reply_markup=remove_keyboard
         )
         await state.set_state(Form.role)
+
+# Обработчик выбора роли
+@dp.message(Form.role)
+async def role_handler(message: types.Message, state: FSMContext):
+    if message.chat.type != ChatType.PRIVATE:
+        return  
+    user_id = message.from_user.id
+    role = message.text.strip()
+    user_data[user_id] = {"role": role}
+    await message.answer(
+        f'Перейдите по <a href="{GROUP_LINK}">ссылке</a>. Ваша заявка будет рассмотрена в ближайшее время.',
+        disable_web_page_preview=True,
+        reply_markup=get_menu()
+    )
+    admin_message = (
+        f"🔔 <b>Заявка на вступление!</b>\n"
+        f"👤 Пользователь: <a href='tg://user?id={user_id}'>{message.from_user.full_name}</a>\n"
+        f"📌 Роль: {role}"
+    )
+    for admin_id in ADMIN_IDS:
+        await bot.send_message(admin_id, admin_message)
+    await state.clear()
 
 # Обработчик команд с животными
 @dp.message(F.text.startswith("/"))
