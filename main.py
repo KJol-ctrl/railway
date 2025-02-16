@@ -230,7 +230,7 @@ async def start_handler(message: types.Message, state: FSMContext):
     else:
         remove_keyboard = types.ReplyKeyboardRemove()
         await message.answer(
-            "Запустив бота, вы подтверждаете ознакомление с <a href='https://telegra.ph/Pravila-02-08-160'>правилами</a>. Напишите свободную роль так, занятые указаны в <a href='https://t.me/stellarpassion/9'>списке</a>. Она должна быть без точки и с большой буквы. Например: Мона",
+            "Запустив бота, вы подтверждаете ознакомление с <a href='https://telegra.ph/Pravila-02-08-160'>правилами</a>. Напишите свободную роль, занятые указаны в <a href='https://t.me/stellarpassion/9'>списке</a>. Она должна быть без точки и с большой буквы. Например: Мона",
             disable_web_page_preview=True,
             reply_markup=remove_keyboard
         )
