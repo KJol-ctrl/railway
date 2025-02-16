@@ -1,0 +1,7 @@
+app = "имя_твоего_приложения"
+
+[build]
+  builder = "paketobuildpacks/builder:base"
+
+[env]
+  PORT = "8080"
