@@ -222,7 +222,7 @@ async def start_handler(message: types.Message, state: FSMContext):
         return  
     user_id = message.from_user.id
     if not await is_member(user_id) and not await check_message_limit(user_id):
-        await message.answer("Вы исчерпали лимит сообщений. Вступите в группу, чтобы продолжить общение с ботом.")
+        await message.answer("Вы исчерпали лимит сообщений. Вступите в группу, чтобы продолжить общение с ботом. Если это баг, напишите <a href='https://t.me/stellarpassion/6'>администрации</a>.")
         return
     member = await bot.get_chat_member(GROUP_ID, user_id)
     if member.status in ["member", "administrator", "creator"]:
@@ -265,7 +265,7 @@ async def animal_photo(message: types.Message):
         return
     user_id = message.from_user.id
     if not await is_member(user_id) and not await check_message_limit(user_id):
-        await message.answer("Вы исчерпали лимит сообщений. Вступите в группу, чтобы продолжить общение с ботом. Если это баг, напишите <a href='https://t.me/stellarpassion/6'>администрации</a>.")
+        await message.answer("Извините, ничего не нашлось.")
         return
     animal = message.text[1:].lower()
     if UNSPLASH_ACCESS_KEY:
@@ -277,7 +277,7 @@ async def animal_photo(message: types.Message):
                 random_photo = random.choice(data['results'])
                 await bot.send_photo(message.chat.id, random_photo['urls']['regular'])
             else:
-                await message.answer("Извини, я ничего не нашлось.")
+                await message.answer("Извини, ничего не нашлось.")
         except requests.exceptions.RequestException as e:
             await message.answer(f"Ошибка при запросе к Unsplash: {e}")
         except (KeyError, IndexError) as e:
