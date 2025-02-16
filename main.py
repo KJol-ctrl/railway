@@ -171,15 +171,15 @@ async def user_joins_chat(update: types.ChatMemberUpdated):
                 )
                 await bot.set_chat_administrator_custom_title(chat_id, user_id, role)
                 user_data[user_id]["custom_title"] = role
-                
+
                 members = await bot.get_chat_administrators(chat_id)
                 tags = []
                 emojis = ["⭐️", "🌟", "💫", "⚡️", "🔥", "❤️", "💞", "💕", "❣️", "💌", "🌈", "✨", "🎯", "🎪", "🎨", "🎭", "🎪", "🎢", "🎡", "🎠", "🎪", "🌸", "🌺", "🌷", "🌹", "🌻", "🌼", "💐", "🌾", "🌿", "☘️", "🍀", "🍁", "🍂", "🍃", "🌵", "🌴", "🌳", "🌲", "🎄", "🌊", "🌈", "☀️", "🌤", "⛅️", "☁️", "🌦", "🌨", "❄️", "☃️",  "🌬", "💨", "🌪", "🌫", "🌈", "☔️", "⚡️", "❄️", "🔮", "🎮", "🎲", "🎯", "🎳", "🎪", "🎭", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹", "🥁", "🎷", "🎺", "🎸", "🪕", "🎻", "🎲", "♟", "🎯", "🎳", "🎮", "🎰", "🧩", "🎪", "🎭", "🎨", "🖼", "🎨", "🧵", "🧶", "👑", "💎", "⚜️"]
-                
+
                 # Создаем или получаем словарь для хранения эмодзи пользователей
                 if 'user_emojis' not in user_data:
                     user_data['user_emojis'] = {}
-                
+
                 for member in members:
                     if not member.user.is_bot and member.user.id != user_id and member.status in ["member", "administrator"]:
                         if member.user.username:
@@ -188,7 +188,7 @@ async def user_joins_chat(update: types.ChatMemberUpdated):
                                 available_emojis = [e for e in emojis if e not in user_data['user_emojis'].values()]
                                 if available_emojis:
                                     user_data['user_emojis'][member.user.id] = random.choice(available_emojis)
-                            
+
                             emoji = user_data['user_emojis'].get(member.user.id, "👤")
                             tag = f"<a href='tg://user?id={member.user.id}'>{emoji}</a>"
                             tags.append(tag)
@@ -258,19 +258,17 @@ async def role_handler(message: types.Message, state: FSMContext):
         await bot.send_message(admin_id, admin_message)
     await state.clear()
 
-# Обработчик команд с животными
+# Обработчик команд с фото
 @dp.message(F.text.startswith("/"))
-async def animal_photo(message: types.Message):
-    if message.chat.type != ChatType.PRIVATE:
-        return
+async def photo(message: types.Message):
     user_id = message.from_user.id
     if not await is_member(user_id) and not await check_message_limit(user_id):
         await message.answer("Извините, ничего не нашлось.")
         return
-    animal = message.text[1:].lower()
+    query = message.text[1:].lower()
     if UNSPLASH_ACCESS_KEY:
         try:
-            response = requests.get(f"https://api.unsplash.com/search/photos?query={animal}&client_id={UNSPLASH_ACCESS_KEY}")
+            response = requests.get(f"https://api.unsplash.com/search/photos?query={query}&client_id={UNSPLASH_ACCESS_KEY}")
             response.raise_for_status()
             data = response.json()
             if data['results']:
@@ -321,7 +319,7 @@ async def main():
             dp.message.register(handle_complaint, Form.complaint)
             dp.message.register(back_to_menu, F.text == "Назад")
             dp.chat_member.register(user_joins_chat)
-            dp.message.register(animal_photo, F.text.startswith("/"))
+            dp.message.register(photo, F.text.startswith("/"))
 
             logging.info("Бот запущен")
             await dp.start_polling(bot)
