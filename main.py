@@ -213,7 +213,7 @@ async def start_handler(message: types.Message, state: FSMContext):
         return
     member = await bot.get_chat_member(GROUP_ID, user_id)
     if member.status in ["member", "administrator", "creator"]:
-        await message.answer("✅ <b>Вы уже являетесь участником группы</b>\n\n🎮 Используйте меню для навигации:", reply_markup=get_menu())
+        await message.answer(" <b>Вы уже являетесь участником группы</b>\n\n🎮 Используйте меню для навигации:", reply_markup=get_menu())
     else:
         remove_keyboard = types.ReplyKeyboardRemove()
         await message.answer(
