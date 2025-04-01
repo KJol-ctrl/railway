@@ -1,11 +1,5 @@
-import pip
-
-pip.main(['install', 'flask'])
-pip.main(['install', 'pytelegrambotapi'])
-
 import logging
 import asyncio
-import random
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.enums import ParseMode, ChatType
 from aiogram.fsm.context import FSMContext
@@ -13,54 +7,50 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import ChatPermissions, ReplyKeyboardMarkup, KeyboardButton
-from flask import Flask
-import threading
-import datetime
+import random
 import requests
-import json
-import re
-
 import os
 
-# Токен бота и настройки
+# Базовые настройки
 TOKEN = os.environ['BOT_TOKEN']
 ADMIN_IDS = [int(id) for id in os.environ['ADMIN_IDS'].split(',')]
 GROUP_ID = int(os.environ['GROUP_ID'])
 GROUP_LINK = os.environ['GROUP_LINK']
 UNSPLASH_ACCESS_KEY = os.environ.get('UNSPLASH_ACCESS_KEY')
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
+# Оптимизированная настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
 
-# Инициализация бота и диспетчера
+# Инициализация бота с оптимизированными настройками
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
-# Глобальные словари для хранения данных пользователей
+# Глобальные словари в памяти
 user_data = {}
-message_counts = {}  # Словарь для подсчета сообщений пользователей
-MAX_MESSAGES = 5  # Максимальное количество сообщений
+message_counts = {}
+MAX_MESSAGES = 5
 
-# Класс состояний
 class Form(StatesGroup):
     role = State()
+    age_verify = State()
     reason = State()
     duration = State()
     complaint = State()
 
-# Функция создания меню
 def get_menu():
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
         [KeyboardButton(text="Рест"), KeyboardButton(text="Жалоба")]
     ])
 
-# Функция создания кнопки "Назад"
 def get_back_button():
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
         [KeyboardButton(text="Назад")]
     ])
 
-# Проверка участия в группе
 async def is_member(user_id: int) -> bool:
     try:
         member = await bot.get_chat_member(GROUP_ID, user_id)
@@ -74,7 +64,6 @@ async def check_message_limit(user_id: int) -> bool:
     message_counts[user_id] += 1
     return message_counts[user_id] <= MAX_MESSAGES
 
-# Обработчик кнопки "Рест"
 @dp.message(F.text == "Рест")
 async def request_rest(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
@@ -86,7 +75,6 @@ async def request_rest(message: types.Message, state: FSMContext):
     await message.answer("Пожалуйста, напишите причину реста:", reply_markup=get_back_button())
     await state.set_state(Form.reason)
 
-# Обработчик причины реста
 @dp.message(Form.reason)
 async def rest_reason(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
@@ -98,7 +86,6 @@ async def rest_reason(message: types.Message, state: FSMContext):
     await message.answer("Напишите срок реста:")
     await state.set_state(Form.duration)
 
-# Обработчик срока реста
 @dp.message(Form.duration)
 async def rest_duration(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
@@ -118,7 +105,6 @@ async def rest_duration(message: types.Message, state: FSMContext):
     await message.answer("Вы отправили заявку.", reply_markup=get_menu())
     await state.clear()
 
-# Обработчик кнопки "Жалоба"
 @dp.message(F.text == "Жалоба")
 async def complaint(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
@@ -130,7 +116,6 @@ async def complaint(message: types.Message, state: FSMContext):
     await message.answer("Опишите вашу жалобу:", reply_markup=get_back_button())
     await state.set_state(Form.complaint)
 
-# Обработчик жалобы
 @dp.message(Form.complaint)
 async def handle_complaint(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
@@ -144,7 +129,6 @@ async def handle_complaint(message: types.Message, state: FSMContext):
     await message.answer("Вы отправили жалобу.", reply_markup=get_menu())
     await state.clear()
 
-# Обработчик кнопки "Назад"
 @dp.message(F.text == "Назад")
 async def back_to_menu(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
@@ -152,7 +136,6 @@ async def back_to_menu(message: types.Message, state: FSMContext):
     await message.answer("Вы вернулись в меню.", reply_markup=get_menu())
     await state.clear()
 
-# Обработчик присоединения к чату
 @dp.chat_member()
 async def user_joins_chat(update: types.ChatMemberUpdated):
     user_id = update.new_chat_member.user.id
@@ -195,11 +178,12 @@ async def user_joins_chat(update: types.ChatMemberUpdated):
                 mention_text = " ".join(tags)
                 await bot.send_message(
                     chat_id,
-                    f'''📢 Новый участник: <b>{update.new_chat_member.user.full_name}</b>
+                    f'''📢 Новый участник: <a href='tg://user?id={update.new_chat_member.user.id}'>{update.new_chat_member.user.full_name}</a>
 🎭 Роль: <b>{role}</b>
 {mention_text}'''
                 )
-                await bot.send_message(user_id, "Ваша заявка одобрена. Теперь вы можете взаимодействовать с меню.", reply_markup=get_menu())
+                await bot.send_message(user_id, f'''🌟 <b>Добро пожаловать!</b> 
+Ваша заявка одобрена. Теперь вы можете взаимодействовать с меню.''', reply_markup=get_menu())
             except Exception as e:
                 logging.error(f"Ошибка при назначении роли: {e}")
                 for admin_id in ADMIN_IDS:
@@ -207,58 +191,115 @@ async def user_joins_chat(update: types.ChatMemberUpdated):
         elif update.new_chat_member.status in ["left", "kicked"]:
             if user_id in user_data:
                 custom_title = user_data[user_id].get("custom_title", "Неизвестно")
-                leave_message = f"😢 Пользователь <b>{update.new_chat_member.user.full_name}</b> с ролью: <b>{custom_title}</b> покинул группу"
+                leave_message = f"😢 Пользователь <a href='tg://user?id={update.new_chat_member.user.id}'>{update.new_chat_member.user.full_name}</a> с ролью <b>{custom_title}</b> покинул группу"
                 # Отправляем сообщение в группу
                 await bot.send_message(chat_id, leave_message)
                 # Отправляем сообщение админам
+                admin_message = f'''👋 <b>Участник покинул группу</b>
+
+😢 Пользователь: <a href='tg://user?id={update.new_chat_member.user.id}'>{update.new_chat_member.user.full_name}</a>
+🎭 Роль: <b>{custom_title}</b>'''
                 for admin_id in ADMIN_IDS:
-                    await bot.send_message(admin_id, leave_message)
+                    await bot.send_message(admin_id, admin_message)
                 user_data.pop(user_id, None)
 
-# Обработчик команды /start
 @dp.message(F.text.casefold() == "/start")
 async def start_handler(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
         return  
     user_id = message.from_user.id
     if not await is_member(user_id) and not await check_message_limit(user_id):
-        await message.answer("Вы исчерпали лимит сообщений. Вступите в группу, чтобы продолжить общение с ботом. Если это баг, напишите <a href='https://t.me/stellarpassion/6'>администрации</a>.")
+        await message.answer("Вы исчерпали лимит сообщений. Вступите в группу, чтобы продолжить общение с ботом. Если это баг, напишите <a href='https://t.me/alren15'>администратору</a>.")
         return
     member = await bot.get_chat_member(GROUP_ID, user_id)
     if member.status in ["member", "administrator", "creator"]:
-        await message.answer("Вы уже состоите в группе.", reply_markup=get_menu())
+        await message.answer("✅ <b>Вы уже являетесь участником группы</b>\n\n🎮 Используйте меню для навигации:", reply_markup=get_menu())
     else:
         remove_keyboard = types.ReplyKeyboardRemove()
         await message.answer(
-            "Запустив бота, вы подтверждаете ознакомление с <a href='https://telegra.ph/Pravila-02-08-160'>правилами</a>. Напишите свободную роль, занятые указаны в <a href='https://t.me/stellarpassion/9'>списке</a>. Она должна быть без точки и с большой буквы. Например: Мона",
+f''' <b>Что бы вступить:</b>
+            
+🏠 Ознакомьтесь с <a href='https://telegra.ph/%F0%9D%99%B5%F0%9D%9A%95%F0%9D%9A%98%F0%9D%9A%98%F0%9D%9A%8D-%F0%9D%9A%83%F0%9D%9A%91%F0%9D%9A%8E-%F0%9D%99%BB%F0%9D%9A%98%F0%9D%9A%9D%F0%9D%9A%9E%F0%9D%9A%9C-%F0%9D%9A%9B%F0%9D%9A%9E%F0%9D%9A%95%F0%9D%9A%8E%F0%9D%9A%9C-03-28'>правилами</a>
+
+🎭 Выберите свободную роль из <a href='https://t.me/info_TheLotus/7'>списка</a>
+
+ Напишите роль без точки и с большой буквы. Пример: <b>Зеле</b>''',
             disable_web_page_preview=True,
             reply_markup=remove_keyboard
         )
         await state.set_state(Form.role)
 
-# Обработчик выбора роли
 @dp.message(Form.role)
 async def role_handler(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
         return  
     user_id = message.from_user.id
     role = message.text.strip()
+    await state.update_data(role=role)
+    await message.answer('''
+Подтвердите свой возраст одним из способов:
+
+   • 📸 Фотография документа
+   • 🎤 Голосовое сообщение
+   • 🎥 Видеосообщение
+   • ✍️ Текстовое сообщение
+
+️ При возникновении ошибок обращайтесь к <a href='https://t.me/alren15'>администратору</a>''')
+    await state.set_state(Form.age_verify)
+
+@dp.message(Form.age_verify, F.text)
+async def age_verify_text_handler(message: types.Message, state: FSMContext):
+    if message.chat.type != ChatType.PRIVATE:
+        return
+    user_id = message.from_user.id
+    data = await state.get_data()
+    role = data.get('role')
     user_data[user_id] = {"role": role}
+    
     await message.answer(
         f'Перейдите по <a href="{GROUP_LINK}">ссылке</a>. Ваша заявка будет рассмотрена в ближайшее время.',
         disable_web_page_preview=True,
         reply_markup=get_menu()
     )
+    
+    admin_message = (
+        f"🔔 <b>Заявка на вступление!</b>\n"
+        f"👤 Пользователь: <a href='tg://user?id={user_id}'>{message.from_user.full_name}</a>\n"
+        f"📌 Роль: {role}\n"
+        f" Подтверждение: {message.text}"
+    )
+    
+    for admin_id in ADMIN_IDS:
+        await bot.send_message(admin_id, admin_message)
+    await state.clear()
+
+@dp.message(Form.age_verify)
+async def age_verify_any_handler(message: types.Message, state: FSMContext):
+    if message.chat.type != ChatType.PRIVATE:
+        return
+    user_id = message.from_user.id
+    data = await state.get_data()
+    role = data.get('role')
+    user_data[user_id] = {"role": role}
+    
+    await message.answer(
+        f'Перейдите по <a href="{GROUP_LINK}">ссылке</a>. Ваша заявка будет рассмотрена в ближайшее время.',
+        disable_web_page_preview=True,
+        reply_markup=get_menu()
+    )
+    
     admin_message = (
         f"🔔 <b>Заявка на вступление!</b>\n"
         f"👤 Пользователь: <a href='tg://user?id={user_id}'>{message.from_user.full_name}</a>\n"
         f"📌 Роль: {role}"
     )
+    
     for admin_id in ADMIN_IDS:
         await bot.send_message(admin_id, admin_message)
+        # Пересылаем любой тип сообщения
+        await bot.forward_message(admin_id, message.chat.id, message.message_id)
     await state.clear()
 
-# Обработчик команд с фото
 @dp.message(F.text.startswith("/"))
 async def photo(message: types.Message):
     user_id = message.from_user.id
@@ -283,53 +324,26 @@ async def photo(message: types.Message):
     else:
         await message.answer("API ключ Unsplash не установлен.")
 
-# Оптимизированный Flask-сервер
-app = Flask(__name__)
 
-@app.route('/')
-def home():
-    logging.info("Uptime Robot checked the bot status")
-    return f"""
-    <html>
-        <head><title>Bot Status</title></head>
-        <body>
-            <h1>Bot Status</h1>
-            <p>Bot is running!</p>
-            <p>Last update: {datetime.datetime.now()}</p>
-        </body>
-    </html>
-    """
-
-def run_flask():
-    app.run(host="0.0.0.0", port=8080, threaded=True)
-
-flask_thread = threading.Thread(target=run_flask, daemon=True)
-flask_thread.start()
-
-# Запуск бота
+# Оптимизированный запуск
 async def main():
-    while True:
-        try:
-            # Register all message handlers
-            dp.message.register(start_handler, F.text.casefold() == "/start")
-            dp.message.register(request_rest, F.text == "Рест")
-            dp.message.register(rest_reason, Form.reason)
-            dp.message.register(rest_duration, Form.duration)
-            dp.message.register(complaint, F.text == "Жалоба")
-            dp.message.register(handle_complaint, Form.complaint)
-            dp.message.register(back_to_menu, F.text == "Назад")
-            dp.chat_member.register(user_joins_chat)
-            dp.message.register(photo, F.text.startswith("/"))
+    try:
+        # Register all message handlers
+        dp.message.register(start_handler, F.text.casefold() == "/start")
+        dp.message.register(request_rest, F.text == "Рест")
+        dp.message.register(rest_reason, Form.reason)
+        dp.message.register(rest_duration, Form.duration)
+        dp.message.register(complaint, F.text == "Жалоба")
+        dp.message.register(handle_complaint, Form.complaint)
+        dp.message.register(back_to_menu, F.text == "Назад")
+        dp.chat_member.register(user_joins_chat)
+        dp.message.register(photo, F.text.startswith("/"))
 
-            logging.info("Бот запущен")
-            await dp.start_polling(bot)
-        except Exception as e:
-            logging.error(f"Ошибка: {e}")
-            logging.info("Перезапуск бота через 5 секунд...")
-            await asyncio.sleep(5)
-        except KeyboardInterrupt:
-            logging.info("Бот остановлен вручную")
-            break
+        logging.info("Bot started")
+        await dp.start_polling(bot)
+    except Exception as e:
+        logging.error(f"Error: {e}")
+        raise
 
 if __name__ == "__main__":
     asyncio.run(main())
