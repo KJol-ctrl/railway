@@ -304,6 +304,14 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
     # Обработка вступления в группу
     if new_status == "member" and user_id in user_data and not update.new_chat_member.user.is_bot:
         try:
+            # Проверяем права бота
+            bot_member = await bot.get_chat_member(chat_id, (await bot.me()).id)
+            if not bot_member.can_promote_members:
+                logging.error(f"Бот не имеет прав администратора в группе {chat_id}")
+                for admin_id in ADMIN_IDS:
+                    await bot.send_message(admin_id, f"⚠️ Бот не имеет необходимых прав администратора в группе {chat_id}")
+                return
+
             role = user_data[user_id]["role"]
             await bot.promote_chat_member(chat_id, user_id, 
                 can_change_info=False,
