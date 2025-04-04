@@ -159,7 +159,7 @@ async def age_verify_any_handler(message: types.Message, state: FSMContext):
         await bot.forward_message(admin_id, message.chat.id, message.message_id)
     await state.clear()
 
-@dp.message(F.text.startswith("/"))
+@dp.message(F.text.startswith("?"))
 async def photo(message: types.Message):
     user_id = message.from_user.id
     if not await is_member(user_id) and not check_message_limit(user_id):
@@ -183,6 +183,24 @@ async def photo(message: types.Message):
     else:
         await message.answer("API ключ Unsplash не установлен.")
 
+
+@dp.message(F.text.lower().startswith("эмодзи"))
+async def set_custom_emoji(message: types.Message):
+    if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        return
+
+    user_id = message.from_user.id
+    emoji = message.text.split(maxsplit=1)[1].strip() if len(message.text.split()) > 1 else None
+    
+    if not emoji:
+        await message.reply("Пожалуйста, укажите эмодзи после команды.")
+        return
+        
+    if 'user_emojis' not in user_data:
+        user_data['user_emojis'] = {}
+    
+    user_data['user_emojis'][user_id] = emoji
+    await message.reply(f"Ваш персональный эмодзи установлен на {emoji}")
 
 @dp.message(F.text.casefold().startswith("засосать"))
 async def kiss_handler(message: types.Message):
@@ -350,13 +368,22 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
                     emoji = user_data['user_emojis'].get(member_id, "👤")
                     tag = f"<a href='tg://user?id={member_id}'>{emoji}</a>"
                     tags.append(tag)
-            mention_text = " ".join(tags)
+            # Разбиваем теги на группы по 10
+            tag_chunks = [tags[i:i + 10] for i in range(0, len(tags), 10)]
+            
+            # Отправляем первое сообщение с информацией о новом участнике
+            first_chunk = " ".join(tag_chunks[0]) if tag_chunks else ""
             await bot.send_message(
                 chat_id,
                 f'''📢 Новый участник: <a href='tg://user?id={update.new_chat_member.user.id}'>{update.new_chat_member.user.full_name}</a>
 🎭 Роль: <b>{role}</b>
-{mention_text}'''
+{first_chunk}'''
             )
+            
+            # Отправляем остальные чанки эмодзи
+            for chunk in tag_chunks[1:]:
+                chunk_text = " ".join(chunk)
+                await bot.send_message(chat_id, chunk_text)
             await bot.send_message(user_id, f'''🌟 <b>Добро пожаловать!</b> 
 Ваша заявка одобрена. Теперь вы можете взаимодействовать с меню.''', reply_markup=get_menu())
         except Exception as e:
