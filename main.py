@@ -25,6 +25,7 @@ ADMIN_IDS = tuple(int(id) for id in os.environ['ADMIN_IDS'].split(','))
 GROUP_ID = int(os.environ['GROUP_ID'])
 GROUP_LINK = os.environ['GROUP_LINK']
 UNSPLASH_ACCESS_KEY = os.environ.get('UNSPLASH_ACCESS_KEY')
+LIST_ADMIN_ID = tuple(int(id) for id in os.environ.get('LIST_ADMIN_ID', '').split(',')) if os.environ.get('LIST_ADMIN_ID') else ()
 
 # Оптимизированная инициализация бота
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -121,9 +122,10 @@ async def age_verify_text_handler(message: types.Message, state: FSMContext):
         reply_markup=get_menu()
     )
 
+    username = f" (@{message.from_user.username})" if message.from_user.username else ""
     admin_message = (
         f"🔔 <b>Заявка на вступление!</b>\n\n"
-        f"👤 Пользователь: <a href='tg://user?id={user_id}'>{message.from_user.full_name}</a>\n"
+        f"👤 Пользователь: <a href='tg://user?id={user_id}'>{message.from_user.full_name}{username}</a>\n"
         f"📌 Роль: <b>{role}</b>\n"
         f"✍️ Подтверждение: {message.text}"
     )
@@ -147,9 +149,10 @@ async def age_verify_any_handler(message: types.Message, state: FSMContext):
         reply_markup=get_menu()
     )
 
+    username = f" (@{message.from_user.username})" if message.from_user.username else ""
     admin_message = (
         f"🔔 <b>Заявка на вступление!</b>\n\n"
-        f"👤 От: <a href='tg://user?id={user_id}'>{message.from_user.full_name}</a>\n"
+        f"👤 От: <a href='tg://user?id={user_id}'>{message.from_user.full_name}{username}</a>\n"
         f"📌 Роль: <b>{role}</b>"
     )
 
@@ -191,14 +194,14 @@ async def set_custom_emoji(message: types.Message):
 
     user_id = message.from_user.id
     emoji = message.text.split(maxsplit=1)[1].strip() if len(message.text.split()) > 1 else None
-    
+
     if not emoji:
         await message.reply("Пожалуйста, укажите эмодзи после команды.")
         return
-        
+
     if 'user_emojis' not in user_data:
         user_data['user_emojis'] = {}
-    
+
     user_data['user_emojis'][user_id] = emoji
     await message.reply(f"Ваш персональный эмодзи установлен на {emoji}")
 
@@ -307,12 +310,18 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
     if old_status == "member" and new_status == "left":
         if user_id in user_data:
             custom_title = user_data[user_id].get("custom_title", "Неизвестно")
-            leave_message = f"😢 Пользователь <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}</a> с ролью <b>{custom_title}</b> покинул группу"
+            username = f" (@{update.new_chat_member.user.username})" if update.new_chat_member.user.username else ""
+            leave_message = f"😢 Пользователь <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}{username}</a> с ролью <b>{custom_title}</b> покинул группу"
             await bot.send_message(chat_id, leave_message)
 
-            admin_message = f'''👋 <b>Участник покинул группу</b>\n\n😢 Пользователь: <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}</a>\n🎭 Роль: <b>{custom_title}</b>'''
+            admin_message = f'''👋 <b>Участник покинул группу</b>\n\n😢 
+            Пользователь: <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}{username}</a>\n🎭 Роль: <b>{custom_title}</b>'''
             for admin_id in ADMIN_IDS:
                 await bot.send_message(admin_id, admin_message)
+            
+            # Send notification to LIST_ADMIN_ID
+            for admin_id in LIST_ADMIN_ID:
+                await bot.send_message(admin_id, f"Освободилась роль: {custom_title}")
 
             if 'user_emojis' in user_data and user_id in user_data['user_emojis']:
                 del user_data['user_emojis'][user_id]
@@ -343,7 +352,6 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
             user_data[user_id]["custom_title"] = role
 
             members = await bot.get_chat_administrators(chat_id)
-            members.extend([await bot.get_chat_member(chat_id, member_id) for member_id in [m.user.id for m in members]])
             tags = []
             emojis = ["⭐️", "🌟", "💫", "⚡️", "🔥", "❤️", "💞", "💕", "❣️", "💌", "🌈", "✨", "🎯", "🎪", "🎨", "🎭", "🎪", "🎢", "🎡", "🎠", "🎪", "🌸", "🌺", "🌷", "🌹", "🌻", "🌼", "💐", "🌾", "🌿", "☘️", "🍀", "🍁", "🍂", "🍃", "🌵", "🌴", "🌳", "🌲", "🎄", "🌊", "🌈", "☀️", "🌤", "⛅️", "☁️", "🌦", "🌨", "❄️", "☃️",  "🌬", "💨", "🌪", "🌫", "🌈", "☔️", "⚡️", "❄️", "🔮", "🎮", "🎲", "🎯", "🎳", "🎪", "🎭", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹", "🥁", "🎷", "🎺", "🎸", "🪕", "🎻", "🎲", "♟", "🎯", "🎳", "🎮", "🎰", "🧩", "🎪", "🎭", "🎨", "🖼", "🎨", "🧵", "🧶", "👑", "💎", "⚜️"]
 
@@ -370,7 +378,7 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
                     tags.append(tag)
             # Разбиваем теги на группы по 10
             tag_chunks = [tags[i:i + 10] for i in range(0, len(tags), 10)]
-            
+
             # Отправляем первое сообщение с информацией о новом участнике
             first_chunk = " ".join(tag_chunks[0]) if tag_chunks else ""
             await bot.send_message(
@@ -379,13 +387,18 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
 🎭 Роль: <b>{role}</b>
 {first_chunk}'''
             )
-            
-            # Отправляем остальные чанки эмодзи
+
+            # Отправляем остальные чанки эмодзи с задержкой
             for chunk in tag_chunks[1:]:
                 chunk_text = " ".join(chunk)
                 await bot.send_message(chat_id, chunk_text)
+                await asyncio.sleep(1)  # Добавляем задержку в 1 секунду между сообщениями
             await bot.send_message(user_id, f'''🌟 <b>Добро пожаловать!</b> 
 Ваша заявка одобрена. Теперь вы можете взаимодействовать с меню.''', reply_markup=get_menu())
+            
+            # Send notification to LIST_ADMIN_ID
+            for admin_id in LIST_ADMIN_ID:
+                await bot.send_message(admin_id, f"Занята роль: {role}")
         except Exception as e:
             logging.error(f"Ошибка при назначении роли: {e}")
             for admin_id in ADMIN_IDS:
@@ -393,14 +406,13 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
     elif update.new_chat_member.status in {"left", "kicked"}:
         if user_id in user_data:
             custom_title = user_data[user_id].get("custom_title", "Неизвестно")
-            notify_user_id = os.environ.get('NOTIFY_USER_ID')
-            mention_text = f"<a href='tg://user?id={notify_user_id}'>👤</a>" if notify_user_id else ""
-            leave_message = f"😢 Пользователь <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}</a> с ролью <b>{custom_title}</b> покинул группу\n{mention_text}"
+            username = f" (@{update.new_chat_member.user.username})" if update.new_chat_member.user.username else ""
+            leave_message = f"😢 Пользователь <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}{username}</a> с ролью <b>{custom_title}</b> покинул группу"
             # Отправляем сообщение в группу
             await bot.send_message(chat_id, leave_message)
             # Отправляем сообщение админам
             admin_message = f'''👋 <b>Участник покинул группу</b>
-😢 Пользователь: <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}</a>
+😢 Пользователь: <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}{username}</a>
 🎭 Роль: <b>{custom_title}</b>'''
             for admin_id in ADMIN_IDS:
                 await bot.send_message(admin_id, admin_message)
