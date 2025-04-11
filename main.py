@@ -85,7 +85,7 @@ async def start_handler(message: types.Message, state: FSMContext):
         await message.answer(" <b>Вы уже являетесь участником группы</b>\n\n🎮 Используйте меню для навигации:", reply_markup=get_menu())
     else:
         await message.answer(
-            f''' <b>Что бы вступить:</b>\n\n🏠 Ознакомьтесь с <a href='https://telegra.ph/%F0%9D%99%B5%F0%9D%9A%95%F0%9D%9A%98%F0%9D%9A%98%F0%9D%9A%8D-%F0%9D%9A%83%F0%9D%9A%91%F0%9D%9A%8E-%F0%9D%99%BB%F0%9D%9A%98%F0%9D%9A%9D%F0%9D%9A%9E%F0%9D%9A%9C-%F0%9D%9A%9B%F0%9D%9A%9E%F0%9D%9A%95%F0%9D%9A%8E%F0%9D%9A%9C-03-28'>правилами</a>\n🎭 Выберите свободную роль из <a href='https://t.me/info_TheLotus/7'>списка</a>\n\n Напишите роль без точки и с большой буквы. Пример: <b>Зеле</b>''',
+            f''' <b>Что бы вступить:</b>\n\n🏠 Ознакомьтесь с <a href='https://telegra.ph/%F0%9D%99%B5%F0%9D%9A%95%F0%9D%9A%98%F0%9D%9A%98%F0%9D%9A%8D-%F0%9D%9A%83%F0%9D%9A%91%F0%9D%9A%8E-%F0%9D%99%BB%F0%9D%9A%98%F0%9D%9A%9D%F0%9D%9A%9E%F0%9D%9A%9C-%F0%9D%9A%9B%F0%9D%9A%9E%F0%9D%9A%95%F0%9D%9A%8E%F0%9D%9A%9C-03-28'>правилами</a>\n🎭 Выберите свободную роль из <a href='https://t.me/info_TheMeiver/7'>списка</a>\n\n Напишите роль без точки и с большой буквы. Пример: <b>Зеле</b>''',
             disable_web_page_preview=True,
             reply_markup=types.ReplyKeyboardRemove()
         )
@@ -162,13 +162,13 @@ async def age_verify_any_handler(message: types.Message, state: FSMContext):
         await bot.forward_message(admin_id, message.chat.id, message.message_id)
     await state.clear()
 
-@dp.message(F.text.startswith("?"))
+@dp.message(lambda message: message.text and message.text.lower().startswith("найди "))
 async def photo(message: types.Message):
     user_id = message.from_user.id
     if not await is_member(user_id) and not check_message_limit(user_id):
         await message.answer("Извините, ничего не нашлось.")
         return
-    query = message.text[1:].lower()
+    query = message.text[6:].lower()
     if UNSPLASH_ACCESS_KEY:
         try:
             response = requests.get(f"https://api.unsplash.com/search/photos?query={query}&client_id={UNSPLASH_ACCESS_KEY}")
