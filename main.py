@@ -97,13 +97,13 @@ async def role_handler(message: types.Message, state: FSMContext):
         return
     await state.update_data(role=message.text.strip())
     await message.answer('''
-Подтвердите свой возраст одним из способов:
+<b>Подтвердите свой возраст одним из способов:</b>
 
-   • 📸 Фотография документа
-   • 🎤 Голосовое сообщение
-   • 🎥 Видеосообщение
-   • ✍️ Текстовое сообщение
-
+📸 Фотография документа
+🎤 Голосовое сообщение
+🎥 Видеосообщение
+✍️ Текстовое сообщение
+   
 ️ При возникновении ошибок обращайтесь к <a href='https://t.me/alren15'>администратору</a>''')
     await state.set_state(Form.age_verify)
 
@@ -124,7 +124,8 @@ async def age_verify_text_handler(message: types.Message, state: FSMContext):
 
     username = f" (@{message.from_user.username})" if message.from_user.username else ""
     admin_message = (
-        f"🔔 <b>Заявка на вступление!</b>\n\n"
+        f"<b>Заявка на вступление!</b>\n\n"
+        
         f"👤 Пользователь: <a href='tg://user?id={user_id}'>{message.from_user.full_name}{username}</a>\n"
         f"📌 Роль: <b>{role}</b>\n"
         f"✍️ Подтверждение: {message.text}"
@@ -151,7 +152,8 @@ async def age_verify_any_handler(message: types.Message, state: FSMContext):
 
     username = f" (@{message.from_user.username})" if message.from_user.username else ""
     admin_message = (
-        f"🔔 <b>Заявка на вступление!</b>\n\n"
+        f"<b>Заявка на вступление!</b>\n\n"
+        
         f"👤 От: <a href='tg://user?id={user_id}'>{message.from_user.full_name}{username}</a>\n"
         f"📌 Роль: <b>{role}</b>"
     )
@@ -254,7 +256,8 @@ async def rest_duration(message: types.Message, state: FSMContext):
         return
     data = await state.get_data()
     role = await bot.get_chat_member(GROUP_ID, message.from_user.id)
-    admin_message = f'''🔔 <b>Заявка на рест</b>
+    admin_message = f'''<b>Заявка на рест</b>
+
 📌 Роль: {role.custom_title if role.custom_title else 'Неизвестно'}
 ⚙️ Причина: {data['reason']}
 ⌛️ Срок: {message.text}'''
@@ -307,18 +310,18 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
     logging.info(f"Обновление участника: {old_status} -> {new_status} для пользователя {user_id}")
 
     # Проверяем выход участника
-    if old_status == "member" and new_status == "left":
+    if (old_status == "member" and new_status == "left") or (old_status == "administrator" and new_status == "left"):
         if user_id in user_data:
             custom_title = user_data[user_id].get("custom_title", "Неизвестно")
             username = f" (@{update.new_chat_member.user.username})" if update.new_chat_member.user.username else ""
             leave_message = f"😢 Пользователь <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}{username}</a> с ролью <b>{custom_title}</b> покинул группу"
             await bot.send_message(chat_id, leave_message)
 
-            admin_message = f'''👋 <b>Участник покинул группу</b>\n\n😢 
-            Пользователь: <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}{username}</a>\n🎭 Роль: <b>{custom_title}</b>'''
+            admin_message = f'''<b>Участник покинул группу</b>\n\n
+            😢 Пользователь: <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}{username}</a>\n🎭 Роль: <b>{custom_title}</b>'''
             for admin_id in ADMIN_IDS:
                 await bot.send_message(admin_id, admin_message)
-            
+
             # Send notification to LIST_ADMIN_ID
             for admin_id in LIST_ADMIN_ID:
                 await bot.send_message(admin_id, f"Освободилась роль: {custom_title}")
@@ -392,10 +395,11 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
             for chunk in tag_chunks[1:]:
                 chunk_text = " ".join(chunk)
                 await bot.send_message(chat_id, chunk_text)
-                await asyncio.sleep(1)  # Добавляем задержку в 1 секунду между сообщениями
-            await bot.send_message(user_id, f'''🌟 <b>Добро пожаловать!</b> 
-Ваша заявка одобрена. Теперь вы можете взаимодействовать с меню.''', reply_markup=get_menu())
+                await asyncio.sleep(2)  # Добавляем задержку между сообщениями
+            await bot.send_message(user_id, f'''🌟 <b>Добро пожаловать!</b>
             
+Ваша заявка одобрена. Теперь вы можете взаимодействовать с меню.''', reply_markup=get_menu())
+
             # Send notification to LIST_ADMIN_ID
             for admin_id in LIST_ADMIN_ID:
                 await bot.send_message(admin_id, f"Занята роль: {role}")
