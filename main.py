@@ -317,7 +317,7 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
             leave_message = f"😢 Пользователь <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}{username}</a> с ролью <b>{custom_title}</b> покинул группу"
             await bot.send_message(chat_id, leave_message)
 
-            admin_message = f'''<b>Участник покинул группу</b>\n\n
+            admin_message = f'''<b>Участник покинул группу</b>\n
             😢 Пользователь: <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}{username}</a>\n🎭 Роль: <b>{custom_title}</b>'''
             for admin_id in ADMIN_IDS:
                 await bot.send_message(admin_id, admin_message)
@@ -415,7 +415,7 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
             # Отправляем сообщение в группу
             await bot.send_message(chat_id, leave_message)
             # Отправляем сообщение админам
-            admin_message = f'''👋 <b>Участник покинул группу</b>
+            admin_message = f'''<b>Участник покинул группу</b>\n
 😢 Пользователь: <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}{username}</a>
 🎭 Роль: <b>{custom_title}</b>'''
             for admin_id in ADMIN_IDS:
