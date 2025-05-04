@@ -5,7 +5,6 @@ from aiogram.enums import ParseMode, ChatType
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.client.default import DefaultBotProperties
 from aiogram.types import ChatPermissions, ReplyKeyboardMarkup, KeyboardButton
 import random
 import requests
@@ -24,10 +23,12 @@ TOKEN = os.environ['BOT_TOKEN']
 ADMIN_IDS = tuple(int(id) for id in os.environ['ADMIN_IDS'].split(','))
 GROUP_ID = int(os.environ['GROUP_ID'])
 GROUP_LINK = os.environ['GROUP_LINK']
-UNSPLASH_ACCESS_KEY = os.environ.get('UNSPLASH_ACCESS_KEY')
+GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
+GOOGLE_CX_ID = os.environ.get('GOOGLE_CX_ID')
 LIST_ADMIN_ID = tuple(int(id) for id in os.environ.get('LIST_ADMIN_ID', '').split(',')) if os.environ.get('LIST_ADMIN_ID') else ()
 
 # Оптимизированная инициализация бота
+from aiogram.client.default import DefaultBotProperties
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -71,6 +72,8 @@ def check_message_limit(user_id: int) -> bool:
     return count <= MAX_MESSAGES
 
 # Handlers
+
+# Handlers
 @dp.message(F.text.casefold() == "/start")
 async def start_handler(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
@@ -84,8 +87,13 @@ async def start_handler(message: types.Message, state: FSMContext):
     if member.status in {"member", "administrator", "creator"}:
         await message.answer(" <b>Вы уже являетесь участником группы</b>\n\n🎮 Используйте меню для навигации:", reply_markup=get_menu())
     else:
+        # Проверяем количество участников в группе
+        chat_members = await bot.get_chat_member_count(GROUP_ID)
+        if chat_members >= 50:
+            await message.answer("<b> В группе сейчас максимальное количество участников.</b>\n\n Оставьте заявку и вас примут при освобождении места.")
+
         await message.answer(
-            f''' <b>Что бы вступить:</b>\n\n🏠 Ознакомьтесь с <a href='https://telegra.ph/%F0%9D%99%B5%F0%9D%9A%95%F0%9D%9A%98%F0%9D%9A%98%F0%9D%9A%8D-%F0%9D%9A%83%F0%9D%9A%91%F0%9D%9A%8E-%F0%9D%99%BB%F0%9D%9A%98%F0%9D%9A%9D%F0%9D%9A%9E%F0%9D%9A%9C-%F0%9D%9A%9B%F0%9D%9A%9E%F0%9D%9A%95%F0%9D%9A%8E%F0%9D%9A%9C-03-28'>правилами</a>\n🎭 Выберите свободную роль из <a href='https://t.me/info_TheMeiver/7'>списка</a>\n\n Напишите роль без точки и с большой буквы. Пример: <b>Зеле</b>''',
+            f''' <b>Что бы вступить:</b>\n\n🏠 Ознакомьтесь с <a href='https://telegra.ph/%F0%9D%99%B5%F0%9D%9A%95%F0%9D%9A%98%F0%9D%9A%98%F0%9D%9A%8D-%F0%9D%9A%83%F0%9D%9A%91%F0%9D%9A%8E-%F0%9D%99%BB%F0%9D%9A%98%F0%9D%9A%9D%F0%9D%9A%9E%F0%9D%9A%9C-%F0%9D%9A%9B%F0%9D%9A%9E%F0%9D%9A%95%F0%9D%9A%8E%F0%9D%9A%9C-03-28'>правилами</a>\n🎭 Выберите свободную роль из <a href='https://t.me/info_TheMeiver/7'>списка</a>\n\n Напишите <b>только роль</b> без точки и с большой буквы. Пример: <b>Зеле</b>''',
             disable_web_page_preview=True,
             reply_markup=types.ReplyKeyboardRemove()
         )
@@ -100,11 +108,9 @@ async def role_handler(message: types.Message, state: FSMContext):
 <b>Подтвердите свой возраст одним из способов:</b>
 
 📸 Фотография документа
-🎤 Голосовое сообщение
 🎥 Видеосообщение
-✍️ Текстовое сообщение
-   
-️ При возникновении ошибок обращайтесь к <a href='https://t.me/alren15'>администратору</a>''')
+
+️ <b>Не пишите просто свой возраст.</b> При возникновении ошибок обращайтесь к <a href='https://t.me/alren15'>администратору</a>''')
     await state.set_state(Form.age_verify)
 
 @dp.message(Form.age_verify, F.text)
@@ -117,7 +123,7 @@ async def age_verify_text_handler(message: types.Message, state: FSMContext):
     user_data[user_id] = {"role": role}
 
     await message.answer(
-        f'Перейдите по <a href="{GROUP_LINK}">ссылке</a>. Ваша заявка будет рассмотрена в ближайшее время.',
+        f'Перейдите по <a href="{GROUP_LINK}"><b>ссылке (нажать)</b></a>. Ваша заявка будет рассмотрена в ближайшее время.\n\n Для повторного заполнения - /start',
         disable_web_page_preview=True,
         reply_markup=get_menu()
     )
@@ -125,10 +131,10 @@ async def age_verify_text_handler(message: types.Message, state: FSMContext):
     username = f" (@{message.from_user.username})" if message.from_user.username else ""
     admin_message = (
         f"<b>Заявка на вступление!</b>\n\n"
-        
+        f"#️⃣ ID: <code>{user_id}</code>\n"
         f"👤 Пользователь: <a href='tg://user?id={user_id}'>{message.from_user.full_name}{username}</a>\n"
         f"📌 Роль: <b>{role}</b>\n"
-        f"✍️ Подтверждение: {message.text}"
+        f"Подтверждение: {message.text}\n\n"
     )
 
     for admin_id in ADMIN_IDS:
@@ -145,7 +151,7 @@ async def age_verify_any_handler(message: types.Message, state: FSMContext):
     user_data[user_id] = {"role": role}
 
     await message.answer(
-        f'Перейдите по <a href="{GROUP_LINK}">ссылке</a>. Ваша заявка будет рассмотрена в ближайшее время.',
+        f'Перейдите по <a href="{GROUP_LINK}"><b>ссылке (нажать)</b></a>. Ваша заявка будет рассмотрена в ближайшее время.\n\n Для повторного заполнения - /start',
         disable_web_page_preview=True,
         reply_markup=get_menu()
     )
@@ -153,7 +159,7 @@ async def age_verify_any_handler(message: types.Message, state: FSMContext):
     username = f" (@{message.from_user.username})" if message.from_user.username else ""
     admin_message = (
         f"<b>Заявка на вступление!</b>\n\n"
-        
+
         f"👤 От: <a href='tg://user?id={user_id}'>{message.from_user.full_name}{username}</a>\n"
         f"📌 Роль: <b>{role}</b>"
     )
@@ -170,24 +176,44 @@ async def photo(message: types.Message):
     if not await is_member(user_id) and not check_message_limit(user_id):
         await message.answer("Извините, ничего не нашлось.")
         return
+
     query = message.text[6:].lower()
-    if UNSPLASH_ACCESS_KEY:
+    GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
+    GOOGLE_CX_ID = os.environ.get('GOOGLE_CX_ID')
+
+    if GOOGLE_API_KEY and GOOGLE_CX_ID:
         try:
-            response = requests.get(f"https://api.unsplash.com/search/photos?query={query}&client_id={UNSPLASH_ACCESS_KEY}")
+            search_url = f"https://www.googleapis.com/customsearch/v1"
+            params = {
+                'key': GOOGLE_API_KEY,
+                'cx': GOOGLE_CX_ID,
+                'q': query,
+                'searchType': 'image',
+                'num': 10,  # Количество изображений в результате
+                'safe': 'active'  # Включаем безопасный поиск
+            }
+            response = requests.get(search_url, params=params)
             response.raise_for_status()
             data = response.json()
-            if data['results']:
-                random_photo = random.choice(data['results'])
-                await bot.send_photo(message.chat.id, random_photo['urls']['regular'])
-            else:
-                await message.answer("Извини, ничего не нашлось.")
-        except requests.exceptions.RequestException as e:
-            await message.answer(f"Ошибка при запросе к Unsplash: {e}")
-        except (KeyError, IndexError) as e:
-            await message.answer(f"Ошибка обработки данных Unsplash: {e}")
-    else:
-        await message.answer("API ключ Unsplash не установлен.")
 
+            if data.get('items'):
+                # Храним уже отправленные изображения
+                if user_id not in message_counts:
+                    message_counts[user_id] = []
+
+                for item in data['items']:
+                    image_url = item.get('link')
+                    # Проверяем, было ли это изображение отправлено раньше
+                    if image_url not in message_counts[user_id]:
+                        await bot.send_photo(message.chat.id, image_url)
+                        message_counts[user_id].append(image_url)  # Добавляем изображение в список отправленных
+                        return
+
+                await message.answer("Извини, по запросу ничего не нашлось.")
+            else:
+                await message.answer("Извини, по запросу ничего не нашлось.")
+        except requests.exceptions.RequestException as e:
+            await message.answer(f"Ошибка при запросе к Google API: {e}")
 
 @dp.message(F.text.lower().startswith("эмодзи"))
 async def set_custom_emoji(message: types.Message):
@@ -254,16 +280,23 @@ async def rest_duration(message: types.Message, state: FSMContext):
         await state.set_state(Form.reason)
         await message.answer("Пожалуйста, напишите причину реста заново:", reply_markup=get_back_button())
         return
+
+    user_id = message.from_user.id
     data = await state.get_data()
-    role = await bot.get_chat_member(GROUP_ID, message.from_user.id)
+    role = await bot.get_chat_member(GROUP_ID, user_id)
+    username = f" (@{message.from_user.username})" if message.from_user.username else ""
+
     admin_message = f'''<b>Заявка на рест</b>
 
+От: <a href='tg://user?id={user_id}'>{message.from_user.full_name}{username}</a>
 📌 Роль: {role.custom_title if role.custom_title else 'Неизвестно'}
 ⚙️ Причина: {data['reason']}
 ⌛️ Срок: {message.text}'''
+
     for admin_id in ADMIN_IDS:
         await bot.send_message(admin_id, admin_message)
-    await message.answer("Вы отправили заявку.", reply_markup=get_menu())
+
+    await message.answer("Заявка на рест отправлена. Ожидайте ответа от администраторов.", reply_markup=get_menu())
     await state.clear()
 
 @dp.message(F.text == "Жалоба")
@@ -284,10 +317,15 @@ async def handle_complaint(message: types.Message, state: FSMContext):
     if message.text == "Назад":
         await back_to_menu(message, state)
         return
+
+    user_id = message.from_user.id
+    username = f" (@{message.from_user.username})" if message.from_user.username else ""
+
     for admin_id in ADMIN_IDS:
-        await bot.send_message(admin_id, f'''🔔 <b>Новая жалоба от</b> {message.from_user.full_name}:
+        await bot.send_message(admin_id, f'''🔔 <b>Новая жалоба от</b> <a href='tg://user?id={user_id}'>{message.from_user.full_name}{username}</a>:
 {message.text}''')
-    await message.answer("Вы отправили жалобу.", reply_markup=get_menu())
+
+    await message.answer("Жалоба отправлена администраторам. Ожидайте ответ.", reply_markup=get_menu())
     await state.clear()
 
 @dp.message(F.text == "Назад")
@@ -339,7 +377,7 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
             if not bot_member.can_promote_members:
                 logging.error(f"Бот не имеет прав администратора в группе {chat_id}")
                 for admin_id in ADMIN_IDS:
-                    await bot.send_message(admin_id, f"⚠️ Бот не имеет необходимых прав администратора в группе {chat_id}")
+                    await bot.send_message(admin_id, f"Бот не имеет необходимых прав администратора в группе {chat_id}")
                 return
 
             role = user_data[user_id]["role"]
@@ -382,22 +420,20 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
             # Разбиваем теги на группы по 10
             tag_chunks = [tags[i:i + 10] for i in range(0, len(tags), 10)]
 
-            # Отправляем первое сообщение с информацией о новом участнике
-            first_chunk = " ".join(tag_chunks[0]) if tag_chunks else ""
+            # Отправляем сначала приветственное сообщение
             await bot.send_message(
                 chat_id,
                 f'''📢 Новый участник: <a href='tg://user?id={update.new_chat_member.user.id}'>{update.new_chat_member.user.full_name}</a>
-🎭 Роль: <b>{role}</b>
-{first_chunk}'''
+🎭 Роль: <b>{role}</b>'''
             )
 
-            # Отправляем остальные чанки эмодзи с задержкой
-            for chunk in tag_chunks[1:]:
+            # Отправляем все чанки с эмодзи с задержкой
+            for chunk in tag_chunks:
                 chunk_text = " ".join(chunk)
                 await bot.send_message(chat_id, chunk_text)
-                await asyncio.sleep(2)  # Добавляем задержку между сообщениями
+                await asyncio.sleep(1)  # Добавляем задержку между всеми сообщениями с тегами
             await bot.send_message(user_id, f'''🌟 <b>Добро пожаловать!</b>
-            
+
 Ваша заявка одобрена. Теперь вы можете взаимодействовать с меню.''', reply_markup=get_menu())
 
             # Send notification to LIST_ADMIN_ID
@@ -420,6 +456,11 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
 🎭 Роль: <b>{custom_title}</b>'''
             for admin_id in ADMIN_IDS:
                 await bot.send_message(admin_id, admin_message)
+
+            # Отправляем уведомление о свободной роли в LIST_ADMIN_ID
+            for admin_id in LIST_ADMIN_ID:
+                await bot.send_message(admin_id, f"Освободилась роль: {custom_title}")
+
             # Удаляем эмодзи пользователя если он есть
             if 'user_emojis' in user_data and user_id in user_data['user_emojis']:
                 del user_data['user_emojis'][user_id]
@@ -438,6 +479,124 @@ async def save_existing_members_titles():
                 }
     except Exception as e:
         logging.error(f"Ошибка при сохранении титулов: {e}")
+
+# Обработчик ответов админов на заявки пользователей
+@dp.message(lambda m: m.text and m.text.lower().startswith("счёт ") and m.reply_to_message)
+async def count_symbols(message: types.Message):
+    # Получаем символ для подсчета (берем первый символ после команды)
+    symbol = message.text[5:].strip()
+    if not symbol:
+        await message.reply("Укажите символ для подсчета после команды.")
+        return
+        
+    # Получаем текст из сообщения, на которое ответили
+    target_text = message.reply_to_message.text or message.reply_to_message.caption
+    if not target_text:
+        await message.reply("В сообщении нет текста для подсчета символов.")
+        return
+        
+    # Считаем количество символов
+    count = target_text.count(symbol)
+    await message.reply(f'Количество указанного символа: {count}')
+
+@dp.message(lambda m: m.chat.type == ChatType.PRIVATE and 
+           m.from_user.id in ADMIN_IDS and 
+           m.text and m.text.lower().startswith("сказать "))
+async def admin_say_command(message: types.Message):
+    try:
+        # Получаем текст после команды "сказать"
+        text_to_say = message.text[7:].strip()
+        if not text_to_say:
+            await message.reply("Укажите текст сообщения после команды.")
+            return
+            
+        # Отправляем сообщение в группу
+        await bot.send_message(GROUP_ID, text_to_say)
+        await message.reply("Сообщение отправлено в группу.")
+    except Exception as e:
+        logging.error(f"Ошибка при отправке сообщения в группу: {e}")
+        await message.reply("Произошла ошибка при отправке сообщения.")
+
+@dp.message()
+async def handle_admin_response(message: types.Message):
+    try:
+        # Проверяем, что это ответ админа на заявку
+        if not (message.chat.type == ChatType.PRIVATE and 
+                message.from_user.id in ADMIN_IDS and 
+                message.reply_to_message):
+            return
+
+        reply_text = message.reply_to_message.text or message.reply_to_message.caption or ""
+
+        if "Заявка на вступление!" not in reply_text:
+            return
+
+        # Парсим ID пользователя из заявки на вступление
+        user_id = None
+        for line in reply_text.split('\n'):
+            if line.startswith("#️⃣ ID:"):
+                user_id_str = line.split(":")[1].strip().replace("<code>", "").replace("</code>", "")
+                if user_id_str.isdigit():
+                    user_id = int(user_id_str)
+                break
+
+        # Альтернативный парсинг если ID не найден
+        if not user_id and "tg://user?id=" in reply_text:
+            user_id = int(reply_text.split("tg://user?id=")[1].split("'")[0])
+
+        if not user_id:
+            await message.reply("Не удалось определить ID пользователя.")
+            return
+
+        # Получаем информацию об админе и пользователе
+        try:
+            admin = message.from_user
+            target_user = await bot.get_chat(user_id)
+
+            # Отправляем ответ пользователю
+            await bot.send_message(
+                user_id,
+                f"<b>Ответ администратора:</b>\n\n{message.text}",
+                parse_mode=ParseMode.HTML
+            )
+
+            # Формируем текст уведомления для других админов
+            admin_name = f"<b>{admin.full_name}</b>"
+            if admin.username:
+                admin_name += f" (@{admin.username})"
+
+            user_name = f"<b>{target_user.full_name}</b>"
+            if target_user.username:
+                user_name += f" (@{target_user.username})"
+
+            notification_text = (
+                f"{admin_name} отправил ответ пользователю {user_name}:\n"
+                f"<code>{message.text}</code>"
+            )
+
+            # Отправляем уведомление другим админам
+            for admin_id in ADMIN_IDS:
+                if admin_id != message.from_user.id:
+                    try:
+                        await bot.send_message(
+                            admin_id,
+                            notification_text,
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logging.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+
+            await message.reply(f"Ответ успешно отправлен пользователю.")
+
+        except Exception as e:
+            error_msg = f"Не удалось отправить ответ: {str(e)}"
+            if "user is deactivated" in str(e) or "bot was blocked by the user" in str(e):
+                error_msg = "Пользователь заблокировал бота или удалил аккаунт"
+            await message.reply(error_msg)
+
+    except Exception as e:
+        logging.error(f"Ошибка в обработчике ответов админа: {str(e)}", exc_info=True)
+        await message.reply("Произошла системная ошибка. Проверьте логи.")
 
 async def main():
     try:
