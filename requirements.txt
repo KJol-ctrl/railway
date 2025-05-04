@@ -1,4 +1,4 @@
-flask
-pytelegrambotapi
-aiogram
-requests
+pytelegrambotapi==4.14.0
+aiogram==3.7.0
+requests==2.31.0
+google-images-search>=1.4.6
