@@ -123,7 +123,7 @@ async def age_verify_text_handler(message: types.Message, state: FSMContext):
     user_data[user_id] = {"role": role}
 
     await message.answer(
-        f'Перейдите по <a href="{GROUP_LINK}"><b>ссылке (нажать)</b></a>. Ваша заявка будет рассмотрена в ближайшее время.\n\n Для повторного заполнения - /start',
+        f' Перейдите по <a href="{GROUP_LINK}"><b>ссылке (нажать)</b></a>. Ваша заявка будет рассмотрена в ближайшее время.\n\n Для повторного заполнения - /start',
         disable_web_page_preview=True,
         reply_markup=get_menu()
     )
@@ -151,7 +151,7 @@ async def age_verify_any_handler(message: types.Message, state: FSMContext):
     user_data[user_id] = {"role": role}
 
     await message.answer(
-        f'Перейдите по <a href="{GROUP_LINK}"><b>ссылке (нажать)</b></a>. Ваша заявка будет рассмотрена в ближайшее время.\n\n Для повторного заполнения - /start',
+        f' Перейдите по <a href="{GROUP_LINK}"><b>ссылке (нажать)</b></a>. Ваша заявка будет рассмотрена в ближайшее время.\n\n Для повторного заполнения - /start',
         disable_web_page_preview=True,
         reply_markup=get_menu()
     )
@@ -159,7 +159,7 @@ async def age_verify_any_handler(message: types.Message, state: FSMContext):
     username = f" (@{message.from_user.username})" if message.from_user.username else ""
     admin_message = (
         f"<b>Заявка на вступление!</b>\n\n"
-
+        f"#️⃣ ID: <code>{user_id}</code>\n"
         f"👤 От: <a href='tg://user?id={user_id}'>{message.from_user.full_name}{username}</a>\n"
         f"📌 Роль: <b>{role}</b>"
     )
