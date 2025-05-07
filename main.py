@@ -560,17 +560,12 @@ async def handle_admin_response(message: types.Message):
                 parse_mode=ParseMode.HTML
             )
 
-            # Формируем текст уведомления для других админов
+              # Формируем текст уведомления для других админов
             admin_name = f"<b>{admin.full_name}</b>"
-            if admin.username:
-                admin_name += f" (@{admin.username})"
-
             user_name = f"<b>{target_user.full_name}</b>"
-            if target_user.username:
-                user_name += f" (@{target_user.username})"
 
             notification_text = (
-                f"{admin_name} отправил ответ пользователю {user_name}:\n"
+                f"{admin_name} отправил ответ {user_name}:\n"
                 f"<code>{message.text}</code>"
             )
 
