@@ -233,6 +233,11 @@ async def set_custom_emoji(message: types.Message):
     user_data['user_emojis'][user_id] = emoji
     await message.reply(f"Ваш персональный эмодзи установлен на {emoji}")
 
+@dp.message(lambda message: message.text.lower() in {"ауф", "бот", "ауф бот"})
+async def handle_keywords(message: types.Message):
+    if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        await message.reply("Все мои братки делают ауф ☝️🐺")
+
 @dp.message(F.text.casefold().startswith("засосать"))
 async def kiss_handler(message: types.Message):
     if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
