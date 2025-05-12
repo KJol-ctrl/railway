@@ -327,7 +327,7 @@ async def handle_complaint(message: types.Message, state: FSMContext):
     username = f" (@{message.from_user.username})" if message.from_user.username else ""
 
     for admin_id in ADMIN_IDS:
-        await bot.send_message(admin_id, f'''🔔 <b>Новая жалоба от</b> <a href='tg://user?id={user_id}'>{message.from_user.full_name}{username}</a>:
+        await bot.send_message(admin_id, f'''🔔 <b>Новая жалоба:</b>\n
 {message.text}''')
 
     await message.answer("Жалоба отправлена администраторам. Ожидайте ответ.", reply_markup=get_menu())
