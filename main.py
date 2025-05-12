@@ -236,7 +236,7 @@ async def set_custom_emoji(message: types.Message):
 @dp.message(lambda message: message.text.lower() in {"ауф", "бот", "ауф бот"})
 async def handle_keywords(message: types.Message):
     if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
-        await message.reply("Все мои братки делают ауф ☝️🐺")
+        await message.reply("Все мои волки делают ауф ☝️🐺")
 
 @dp.message(F.text.casefold().startswith("засосать"))
 async def kiss_handler(message: types.Message):
