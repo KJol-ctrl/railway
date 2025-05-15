@@ -12,11 +12,9 @@ import os
 from functools import lru_cache
 
 # Базовые настройки с оптимизированным логированием
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%H:%M:%S'
-)
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    datefmt='%H:%M:%S')
 
 # Константы для оптимизации
 TOKEN = os.environ['BOT_TOKEN']
@@ -25,10 +23,13 @@ GROUP_ID = int(os.environ['GROUP_ID'])
 GROUP_LINK = os.environ['GROUP_LINK']
 GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
 GOOGLE_CX_ID = os.environ.get('GOOGLE_CX_ID')
-LIST_ADMIN_ID = tuple(int(id) for id in os.environ.get('LIST_ADMIN_ID', '').split(',')) if os.environ.get('LIST_ADMIN_ID') else ()
+LIST_ADMIN_ID = tuple(
+    int(id) for id in os.environ.get('LIST_ADMIN_ID', '').split(
+        ',')) if os.environ.get('LIST_ADMIN_ID') else ()
 
 # Оптимизированная инициализация бота
 from aiogram.client.default import DefaultBotProperties
+
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -37,18 +38,31 @@ user_data = {}
 message_counts = {}
 MAX_MESSAGES = 5
 
+
 # Кэширование клавиатур
 @lru_cache(maxsize=2)
 def get_menu():
-    return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
-        [KeyboardButton(text="Рест"), KeyboardButton(text="Жалоба")]
-    ])
+    return ReplyKeyboardMarkup(
+        resize_keyboard=True,
+        keyboard=[[KeyboardButton(text="Рест"),
+                   KeyboardButton(text="Жалоба")],
+                  [KeyboardButton(text="Не могу влиться")]])
+
+
+@lru_cache(maxsize=1)
+def get_cant_join_keyboard():
+    return ReplyKeyboardMarkup(resize_keyboard=True,
+                               keyboard=[[
+                                   KeyboardButton(text="Назад"),
+                                   KeyboardButton(text="Не могу выбрать")
+                               ]])
+
 
 @lru_cache(maxsize=1)
 def get_back_button():
-    return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
-        [KeyboardButton(text="Назад")]
-    ])
+    return ReplyKeyboardMarkup(resize_keyboard=True,
+                               keyboard=[[KeyboardButton(text="Назад")]])
+
 
 class Form(StatesGroup):
     role = State()
@@ -56,6 +70,7 @@ class Form(StatesGroup):
     reason = State()
     duration = State()
     complaint = State()
+
 
 # Оптимизированная проверка членства
 async def is_member(user_id: int) -> bool:
@@ -65,13 +80,16 @@ async def is_member(user_id: int) -> bool:
     except Exception:
         return False
 
+
 # Оптимизированная проверка лимита сообщений
 def check_message_limit(user_id: int) -> bool:
     count = message_counts.get(user_id, 0) + 1
     message_counts[user_id] = count
     return count <= MAX_MESSAGES
 
+
 # Handlers
+
 
 # Handlers
 @dp.message(F.text.casefold() == "/start")
@@ -80,24 +98,30 @@ async def start_handler(message: types.Message, state: FSMContext):
         return
     user_id = message.from_user.id
     if not await is_member(user_id) and not check_message_limit(user_id):
-        await message.answer("Вы исчерпали лимит сообщений. Вступите в группу, чтобы продолжить общение с ботом. Если это баг, напишите <a href='https://t.me/alren15'>администратору</a>.")
+        await message.answer(
+            "Вы исчерпали лимит сообщений. Вступите в группу, чтобы продолжить общение с ботом. Если это баг, напишите <a href='https://t.me/alren15'>администратору</a>."
+        )
         return
 
     member = await bot.get_chat_member(GROUP_ID, user_id)
     if member.status in {"member", "administrator", "creator"}:
-        await message.answer(" <b>Вы уже являетесь участником группы</b>\n\n🎮 Используйте меню для навигации:", reply_markup=get_menu())
+        await message.answer(
+            " <b>Вы уже являетесь участником группы</b>\n\n🎮 Используйте меню для навигации:",
+            reply_markup=get_menu())
     else:
         # Проверяем количество участников в группе
         chat_members = await bot.get_chat_member_count(GROUP_ID)
         if chat_members >= 50:
-            await message.answer("<b> В группе сейчас максимальное количество участников.</b>\n\n Оставьте заявку и вас примут при освобождении места.")
+            await message.answer(
+                "<b> В группе сейчас максимальное количество участников.</b>\n\n Оставьте заявку и вас примут при освобождении места."
+            )
 
         await message.answer(
             f''' <b>Что бы вступить:</b>\n\n🏠 Ознакомьтесь с <a href='https://telegra.ph/%F0%9D%99%B5%F0%9D%9A%95%F0%9D%9A%98%F0%9D%9A%98%F0%9D%9A%8D-%F0%9D%9A%83%F0%9D%9A%91%F0%9D%9A%8E-%F0%9D%99%BB%F0%9D%9A%98%F0%9D%9A%9D%F0%9D%9A%9E%F0%9D%9A%9C-%F0%9D%9A%9B%F0%9D%9A%9E%F0%9D%9A%95%F0%9D%9A%8E%F0%9D%9A%9C-03-28'>правилами</a>\n🎭 Выберите свободную роль из <a href='https://t.me/info_TheMeiver/7'>списка</a>\n\n Напишите <b>только роль</b> без точки и с большой буквы. Пример: <b>Зеле</b>''',
             disable_web_page_preview=True,
-            reply_markup=types.ReplyKeyboardRemove()
-        )
+            reply_markup=types.ReplyKeyboardRemove())
         await state.set_state(Form.role)
+
 
 @dp.message(Form.role)
 async def role_handler(message: types.Message, state: FSMContext):
@@ -110,8 +134,10 @@ async def role_handler(message: types.Message, state: FSMContext):
 📸 Фотография документа
 🎥 Видеосообщение
 
-️ <b>Не пишите просто свой возраст.</b> При возникновении ошибок обращайтесь к <a href='https://t.me/alren15'>администратору</a>''')
+️ <b>Не пишите просто свой возраст.</b> При возникновении ошибок обращайтесь к <a href='https://t.me/alren15'>администратору</a>'''
+                         )
     await state.set_state(Form.age_verify)
+
 
 @dp.message(Form.age_verify, F.text)
 async def age_verify_text_handler(message: types.Message, state: FSMContext):
@@ -125,8 +151,7 @@ async def age_verify_text_handler(message: types.Message, state: FSMContext):
     await message.answer(
         f' Перейдите по <a href="{GROUP_LINK}"><b>ссылке (нажать)</b></a>. Ваша заявка будет рассмотрена в ближайшее время.\n\n Для повторного заполнения - /start',
         disable_web_page_preview=True,
-        reply_markup=get_menu()
-    )
+        reply_markup=get_menu())
 
     username = f" (@{message.from_user.username})" if message.from_user.username else ""
     admin_message = (
@@ -134,12 +159,12 @@ async def age_verify_text_handler(message: types.Message, state: FSMContext):
         f"#️⃣ ID: <code>{user_id}</code>\n"
         f"👤 Пользователь: <a href='tg://user?id={user_id}'>{message.from_user.full_name}{username}</a>\n"
         f"📌 Роль: <b>{role}</b>\n"
-        f"Подтверждение: {message.text}\n\n"
-    )
+        f"Подтверждение: {message.text}\n\n")
 
     for admin_id in ADMIN_IDS:
         await bot.send_message(admin_id, admin_message)
     await state.clear()
+
 
 @dp.message(Form.age_verify)
 async def age_verify_any_handler(message: types.Message, state: FSMContext):
@@ -151,26 +176,27 @@ async def age_verify_any_handler(message: types.Message, state: FSMContext):
     user_data[user_id] = {"role": role}
 
     await message.answer(
-        f' Перейдите по <a href="{GROUP_LINK}"><b>ссылке (нажать)</b></a>. Ваша заявка будет рассмотрена в ближайшее время.\n\n Для повторного заполнения - /start',
+        f' Перейдите по <a href="{GROUP_LINK}"><b>ссылке (нажать)</b></a>. Ваша заявка будет рассмотрена в ближайшее время. <b>Не удаляйте чат.</b>\n\n Для повторного заполнения - /start',
         disable_web_page_preview=True,
-        reply_markup=get_menu()
-    )
+        reply_markup=get_menu())
 
     username = f" (@{message.from_user.username})" if message.from_user.username else ""
     admin_message = (
         f"<b>Заявка на вступление!</b>\n\n"
         f"#️⃣ ID: <code>{user_id}</code>\n"
         f"👤 От: <a href='tg://user?id={user_id}'>{message.from_user.full_name}{username}</a>\n"
-        f"📌 Роль: <b>{role}</b>"
-    )
+        f"📌 Роль: <b>{role}</b>")
 
     for admin_id in ADMIN_IDS:
         await bot.send_message(admin_id, admin_message)
         # Пересылаем любой тип сообщения
-        await bot.forward_message(admin_id, message.chat.id, message.message_id)
+        await bot.forward_message(admin_id, message.chat.id,
+                                  message.message_id)
     await state.clear()
 
-@dp.message(lambda message: message.text and message.text.lower().startswith("найди "))
+
+@dp.message(
+    lambda message: message.text and message.text.lower().startswith("найди "))
 async def photo(message: types.Message):
     user_id = message.from_user.id
     if not await is_member(user_id) and not check_message_limit(user_id):
@@ -206,7 +232,9 @@ async def photo(message: types.Message):
                     # Проверяем, было ли это изображение отправлено раньше
                     if image_url not in message_counts[user_id]:
                         await bot.send_photo(message.chat.id, image_url)
-                        message_counts[user_id].append(image_url)  # Добавляем изображение в список отправленных
+                        message_counts[user_id].append(
+                            image_url
+                        )  # Добавляем изображение в список отправленных
                         return
 
                 await message.answer("Извини, по запросу ничего не нашлось.")
@@ -215,13 +243,15 @@ async def photo(message: types.Message):
         except requests.exceptions.RequestException as e:
             await message.answer(f"Ошибка при запросе к Google API: {e}")
 
+
 @dp.message(F.text.lower().startswith("эмодзи"))
 async def set_custom_emoji(message: types.Message):
     if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
         return
 
     user_id = message.from_user.id
-    emoji = message.text.split(maxsplit=1)[1].strip() if len(message.text.split()) > 1 else None
+    emoji = message.text.split(
+        maxsplit=1)[1].strip() if len(message.text.split()) > 1 else None
 
     if not emoji:
         await message.reply("Пожалуйста, укажите эмодзи после команды.")
@@ -233,10 +263,12 @@ async def set_custom_emoji(message: types.Message):
     user_data['user_emojis'][user_id] = emoji
     await message.reply(f"Ваш персональный эмодзи установлен на {emoji}")
 
+
 @dp.message(lambda message: message.text.lower() in {"ауф", "бот", "ауф бот"})
 async def handle_keywords(message: types.Message):
     if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
         await message.reply("Все мои волки делают ауф ☝️🐺")
+
 
 @dp.message(F.text.casefold().startswith("засосать"))
 async def kiss_handler(message: types.Message):
@@ -255,21 +287,25 @@ async def kiss_handler(message: types.Message):
     kiss_message = f"💋 | <a href='tg://user?id={sender.id}'>{sender.full_name}</a> жёстко засосал <a href='tg://user?id={target.id}'>{target.full_name}</a>"
     await message.answer(kiss_message)
 
+
 @dp.message(F.text == "Рест")
 async def request_rest(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
-        return  
+        return
     user_id = message.from_user.id
     if not await is_member(user_id):
-        await message.answer("Вы не являетесь участником.", reply_markup=get_menu())
+        await message.answer("Вы не являетесь участником.",
+                             reply_markup=get_menu())
         return
-    await message.answer("Пожалуйста, напишите причину реста:", reply_markup=get_back_button())
+    await message.answer("Пожалуйста, напишите причину реста:",
+                         reply_markup=get_back_button())
     await state.set_state(Form.reason)
+
 
 @dp.message(Form.reason)
 async def rest_reason(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
-        return  
+        return
     if message.text == "Назад":
         await back_to_menu(message, state)
         return
@@ -277,13 +313,15 @@ async def rest_reason(message: types.Message, state: FSMContext):
     await message.answer("Напишите срок реста:")
     await state.set_state(Form.duration)
 
+
 @dp.message(Form.duration)
 async def rest_duration(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
-        return  
+        return
     if message.text == "Назад":
         await state.set_state(Form.reason)
-        await message.answer("Пожалуйста, напишите причину реста заново:", reply_markup=get_back_button())
+        await message.answer("Пожалуйста, напишите причину реста заново:",
+                             reply_markup=get_back_button())
         return
 
     user_id = message.from_user.id
@@ -294,31 +332,37 @@ async def rest_duration(message: types.Message, state: FSMContext):
     admin_message = f'''<b>Заявка на рест</b>
 
 От: <a href='tg://user?id={user_id}'>{message.from_user.full_name}{username}</a>
-📌 Роль: {role.custom_title if role.custom_title else 'Неизвестно'}
+📌 Роль: <b>{role.custom_title if role.custom_title else 'неизвестно'}</b>
 ⚙️ Причина: {data['reason']}
 ⌛️ Срок: {message.text}'''
 
     for admin_id in ADMIN_IDS:
         await bot.send_message(admin_id, admin_message)
 
-    await message.answer("Заявка на рест отправлена. Ожидайте ответа от администраторов.", reply_markup=get_menu())
+    await message.answer(
+        "Заявка на рест отправлена. Ожидайте ответа от администраторов.",
+        reply_markup=get_menu())
     await state.clear()
+
 
 @dp.message(F.text == "Жалоба")
 async def complaint(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
-        return  
+        return
     user_id = message.from_user.id
     if not await is_member(user_id):
-        await message.answer("Вы не являетесь участником.", reply_markup=get_menu())
+        await message.answer("Вы не являетесь участником.",
+                             reply_markup=get_menu())
         return
-    await message.answer("Опишите вашу жалобу:", reply_markup=get_back_button())
+    await message.answer("Опишите вашу жалобу:",
+                         reply_markup=get_back_button())
     await state.set_state(Form.complaint)
+
 
 @dp.message(Form.complaint)
 async def handle_complaint(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
-        return  
+        return
     if message.text == "Назад":
         await back_to_menu(message, state)
         return
@@ -330,15 +374,85 @@ async def handle_complaint(message: types.Message, state: FSMContext):
         await bot.send_message(admin_id, f'''🔔 <b>Новая жалоба:</b>\n
 {message.text}''')
 
-    await message.answer("Жалоба отправлена администраторам. Ожидайте ответ.", reply_markup=get_menu())
+    await message.answer("Жалоба отправлена администраторам. Ожидайте ответ.",
+                         reply_markup=get_menu())
     await state.clear()
+
+
+class CantJoinState(StatesGroup):
+    waiting_for_admin = State()
+    waiting_for_info = State()
+
+
+@dp.message(F.text == "Не могу влиться")
+async def cant_join_handler(message: types.Message, state: FSMContext):
+    if message.chat.type != ChatType.PRIVATE:
+        return
+    user_id = message.from_user.id
+    if not await is_member(user_id):
+        await message.answer("Вы не являетесь участником.",
+                             reply_markup=get_menu())
+        return
+    await message.answer(
+        "<b> Если вы не можете начать общение или найти собеседника, то вам поможет администрация.</b>\n\n Выберите из <a href=\"https://telegra.ph/Ankety-Administracii-Flood-The-Meiver-05-14\"><b>списка</b></a> анкету админа который поможет вам.",
+        reply_markup=get_cant_join_keyboard())
+    await state.set_state(CantJoinState.waiting_for_admin)
+
+
+@dp.message(CantJoinState.waiting_for_admin)
+async def handle_admin_choice(message: types.Message, state: FSMContext):
+    if message.text == "Назад":
+        await back_to_menu(message, state)
+        return
+    elif message.text == "Не могу выбрать":
+        await message.answer(
+            "<b> Пожалуйста, напишите о себе.</b>\n\n Например: интересы, увлечения, фандомы, характер или отправьте любое сообщение."
+        )
+        await state.set_state(CantJoinState.waiting_for_info)
+    else:
+        await state.update_data(admin_choice=message.text)
+        await message.answer(
+            "<b> Пожалуйста, напишите о себе.</b>\n\n Например: интересы, увлечения, фандомы, характер или отправьте любое сообщение."
+        )
+        await state.set_state(CantJoinState.waiting_for_info)
+
+
+@dp.message(CantJoinState.waiting_for_info)
+async def handle_user_info(message: types.Message, state: FSMContext):
+    if message.text == "Назад":
+        await back_to_menu(message, state)
+        return
+
+    data = await state.get_data()
+    admin_choice = data.get('admin_choice', 'не выбран')
+
+    user_id = message.from_user.id
+    username = f" (@{message.from_user.username})" if message.from_user.username else ""
+
+    # Получаем роль пользователя
+    user_role = "неизвестно"
+    if user_id in user_data:
+        user_role = user_data[user_id].get("custom_title", "неизвестно")
+
+    admin_message = f'''<b>Не может влиться!</b>\n
+📌 Роль: <b>{user_role}</b>{username}
+⭐️ Фаворит: <b>{admin_choice}</b>
+О себе: {message.text}'''
+
+    for admin_id in ADMIN_IDS:
+        await bot.send_message(admin_id, admin_message)
+
+    await message.answer("Ваша заявка отправлена.", reply_markup=get_menu())
+    await state.clear()
+
 
 @dp.message(F.text == "Назад")
 async def back_to_menu(message: types.Message, state: FSMContext):
     if message.chat.type != ChatType.PRIVATE:
-        return  
+        return
     await message.answer("Вы вернулись в меню.", reply_markup=get_menu())
     await state.clear()
+
 
 @dp.chat_member()
 async def chat_member_handler(update: types.ChatMemberUpdated):
@@ -350,10 +464,14 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
     new_status = update.new_chat_member.status if update.new_chat_member else None
     user_id = update.new_chat_member.user.id
 
-    logging.info(f"Обновление участника: {old_status} -> {new_status} для пользователя {user_id}")
+    logging.info(
+        f"Обновление участника: {old_status} -> {new_status} для пользователя {user_id}"
+    )
 
     # Проверяем выход участника
-    if (old_status == "member" and new_status == "left") or (old_status == "administrator" and new_status == "left"):
+    if (old_status == "member"
+            and new_status == "left") or (old_status == "administrator"
+                                          and new_status == "left"):
         if user_id in user_data:
             custom_title = user_data[user_id].get("custom_title", "Неизвестно")
             username = f" (@{update.new_chat_member.user.username})" if update.new_chat_member.user.username else ""
@@ -367,9 +485,11 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
 
             # Send notification to LIST_ADMIN_ID
             for admin_id in LIST_ADMIN_ID:
-                await bot.send_message(admin_id, f"Освободилась роль: {custom_title}")
+                await bot.send_message(
+                    admin_id, f"Освободилась роль: <b>{custom_title}</b>")
 
-            if 'user_emojis' in user_data and user_id in user_data['user_emojis']:
+            if 'user_emojis' in user_data and user_id in user_data[
+                    'user_emojis']:
                 del user_data['user_emojis'][user_id]
             user_data.pop(user_id, None)
             return
@@ -378,28 +498,43 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
     if new_status == "member" and user_id in user_data and not update.new_chat_member.user.is_bot:
         try:
             # Проверяем права бота
-            bot_member = await bot.get_chat_member(chat_id, (await bot.me()).id)
+            bot_member = await bot.get_chat_member(chat_id, (await
+                                                             bot.me()).id)
             if not bot_member.can_promote_members:
-                logging.error(f"Бот не имеет прав администратора в группе {chat_id}")
+                logging.error(
+                    f"Бот не имеет прав администратора в группе {chat_id}")
                 for admin_id in ADMIN_IDS:
-                    await bot.send_message(admin_id, f"Бот не имеет необходимых прав администратора в группе {chat_id}")
+                    await bot.send_message(
+                        admin_id,
+                        f"Бот не имеет необходимых прав администратора в группе {chat_id}"
+                    )
                 return
 
             role = user_data[user_id]["role"]
-            await bot.promote_chat_member(chat_id, user_id, 
-                can_change_info=False,
-                can_delete_messages=False,
-                can_invite_users=False,
-                can_restrict_members=False,
-                can_pin_messages=True,
-                can_promote_members=False
-            )
-            await bot.set_chat_administrator_custom_title(chat_id, user_id, role)
+            await bot.promote_chat_member(chat_id,
+                                          user_id,
+                                          can_change_info=False,
+                                          can_delete_messages=False,
+                                          can_invite_users=False,
+                                          can_restrict_members=False,
+                                          can_pin_messages=True,
+                                          can_promote_members=False)
+            await bot.set_chat_administrator_custom_title(
+                chat_id, user_id, role)
             user_data[user_id]["custom_title"] = role
 
             members = await bot.get_chat_administrators(chat_id)
             tags = []
-            emojis = ["⭐️", "🌟", "💫", "⚡️", "🔥", "❤️", "💞", "💕", "❣️", "💌", "🌈", "✨", "🎯", "🎪", "🎨", "🎭", "🎪", "🎢", "🎡", "🎠", "🎪", "🌸", "🌺", "🌷", "🌹", "🌻", "🌼", "💐", "🌾", "🌿", "☘️", "🍀", "🍁", "🍂", "🍃", "🌵", "🌴", "🌳", "🌲", "🎄", "🌊", "🌈", "☀️", "🌤", "⛅️", "☁️", "🌦", "🌨", "❄️", "☃️",  "🌬", "💨", "🌪", "🌫", "🌈", "☔️", "⚡️", "❄️", "🔮", "🎮", "🎲", "🎯", "🎳", "🎪", "🎭", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹", "🥁", "🎷", "🎺", "🎸", "🪕", "🎻", "🎲", "♟", "🎯", "🎳", "🎮", "🎰", "🧩", "🎪", "🎭", "🎨", "🖼", "🎨", "🧵", "🧶", "👑", "💎", "⚜️"]
+            emojis = [
+                "⭐️", "🌟", "💫", "⚡️", "🔥", "❤️", "💞", "💕", "❣️", "💌", "🌈", "✨",
+                "🎯", "🎪", "🎨", "🎭", "🎪", "🎢", "🎡", "🎠", "🎪", "🌸", "🌺", "🌷",
+                "🌹", "🌻", "🌼", "💐", "🌾", "🌿", "☘️", "🍀", "🍁", "🍂", "🍃", "🌵",
+                "🌴", "🌳", "🌲", "🎄", "🌊", "🌈", "☀️", "🌤", "⛅️", "☁️", "🌦", "🌨",
+                "❄️", "☃️", "🌬", "💨", "🌪", "🌫", "🌈", "☔️", "⚡️", "❄️", "🔮",
+                "🎮", "🎲", "🎯", "🎳", "🎪", "🎭", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹",
+                "🥁", "🎷", "🎺", "🎸", "🪕", "🎻", "🎲", "♟", "🎯", "🎳", "🎮", "🎰",
+                "🧩", "🎪", "🎭", "🎨", "🖼", "🎨", "🧵", "🧶", "👑", "💎", "⚜️"
+            ]
 
             # Создаем или получаем словарь для хранения эмодзи пользователей
             if 'user_emojis' not in user_data:
@@ -407,17 +542,25 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
 
             # Назначаем эмодзи новому участнику
             if user_id not in user_data['user_emojis']:
-                available_emojis = [e for e in emojis if e not in user_data['user_emojis'].values()]
+                available_emojis = [
+                    e for e in emojis
+                    if e not in user_data['user_emojis'].values()
+                ]
                 if available_emojis:
-                    user_data['user_emojis'][user_id] = random.choice(available_emojis)
+                    user_data['user_emojis'][user_id] = random.choice(
+                        available_emojis)
 
             for member in members:
                 if not member.user.is_bot:
                     member_id = member.user.id
                     if member_id not in user_data['user_emojis']:
-                        available_emojis = [e for e in emojis if e not in user_data['user_emojis'].values()]
+                        available_emojis = [
+                            e for e in emojis
+                            if e not in user_data['user_emojis'].values()
+                        ]
                         if available_emojis:
-                            user_data['user_emojis'][member_id] = random.choice(available_emojis)
+                            user_data['user_emojis'][
+                                member_id] = random.choice(available_emojis)
 
                     emoji = user_data['user_emojis'].get(member_id, "👤")
                     tag = f"<a href='tg://user?id={member_id}'>{emoji}</a>"
@@ -429,17 +572,19 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
             await bot.send_message(
                 chat_id,
                 f'''📢 Новый участник: <a href='tg://user?id={update.new_chat_member.user.id}'>{update.new_chat_member.user.full_name}</a>
-🎭 Роль: <b>{role}</b>'''
-            )
+🎭 Роль: <b>{role}</b>''')
 
             # Отправляем все чанки с эмодзи с задержкой
             for chunk in tag_chunks:
                 chunk_text = " ".join(chunk)
                 await bot.send_message(chat_id, chunk_text)
-                await asyncio.sleep(1)  # Добавляем задержку между всеми сообщениями с тегами
-            await bot.send_message(user_id, f'''🌟 <b>Добро пожаловать!</b>
+                await asyncio.sleep(
+                    1)  # Добавляем задержку между всеми сообщениями с тегами
+            await bot.send_message(user_id,
+                                   f'''🌟 <b>Добро пожаловать!</b>
 
-Ваша заявка одобрена. Теперь вы можете взаимодействовать с меню.''', reply_markup=get_menu())
+Ваша заявка одобрена. Теперь вы можете взаимодействовать с меню.''',
+                                   reply_markup=get_menu())
 
             # Send notification to LIST_ADMIN_ID
             for admin_id in LIST_ADMIN_ID:
@@ -447,7 +592,10 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
         except Exception as e:
             logging.error(f"Ошибка при назначении роли: {e}")
             for admin_id in ADMIN_IDS:
-                await bot.send_message(admin_id, f"Ошибка при назначении роли пользователю {update.new_chat_member.user.full_name}: {str(e)}")
+                await bot.send_message(
+                    admin_id,
+                    f"Ошибка при назначении роли пользователю {update.new_chat_member.user.full_name}: {str(e)}"
+                )
     elif update.new_chat_member.status in {"left", "kicked"}:
         if user_id in user_data:
             custom_title = user_data[user_id].get("custom_title", "Неизвестно")
@@ -464,12 +612,15 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
 
             # Отправляем уведомление о свободной роли в LIST_ADMIN_ID
             for admin_id in LIST_ADMIN_ID:
-                await bot.send_message(admin_id, f"Освободилась роль: {custom_title}")
+                await bot.send_message(
+                    admin_id, f"Освободилась роль:<b>{custom_title}</b>")
 
             # Удаляем эмодзи пользователя если он есть
-            if 'user_emojis' in user_data and user_id in user_data['user_emojis']:
+            if 'user_emojis' in user_data and user_id in user_data[
+                    'user_emojis']:
                 del user_data['user_emojis'][user_id]
             user_data.pop(user_id, None)
+
 
 # Оптимизированный запуск
 async def save_existing_members_titles():
@@ -485,28 +636,30 @@ async def save_existing_members_titles():
     except Exception as e:
         logging.error(f"Ошибка при сохранении титулов: {e}")
 
+
 # Обработчик ответов админов на заявки пользователей
-@dp.message(lambda m: m.text and m.text.lower().startswith("счёт ") and m.reply_to_message)
+@dp.message(lambda m: m.text and m.text.lower().startswith("счёт ") and m.
+            reply_to_message)
 async def count_symbols(message: types.Message):
     # Получаем символ для подсчета (берем первый символ после команды)
     symbol = message.text[5:].strip()
     if not symbol:
         await message.reply("Укажите символ для подсчета после команды.")
         return
-        
+
     # Получаем текст из сообщения, на которое ответили
     target_text = message.reply_to_message.text or message.reply_to_message.caption
     if not target_text:
         await message.reply("В сообщении нет текста для подсчета символов.")
         return
-        
+
     # Считаем количество символов
     count = target_text.count(symbol)
     await message.reply(f'Количество указанного символа: {count}')
 
-@dp.message(lambda m: m.chat.type == ChatType.PRIVATE and 
-           m.from_user.id in ADMIN_IDS and 
-           m.text and m.text.lower().startswith("сказать "))
+
+@dp.message(lambda m: m.chat.type == ChatType.PRIVATE and m.from_user.id in
+            ADMIN_IDS and m.text and m.text.lower().startswith("сказать "))
 async def admin_say_command(message: types.Message):
     try:
         # Получаем текст после команды "сказать"
@@ -514,7 +667,7 @@ async def admin_say_command(message: types.Message):
         if not text_to_say:
             await message.reply("Укажите текст сообщения после команды.")
             return
-            
+
         # Отправляем сообщение в группу
         await bot.send_message(GROUP_ID, text_to_say)
         await message.reply("Сообщение отправлено в группу.")
@@ -522,13 +675,13 @@ async def admin_say_command(message: types.Message):
         logging.error(f"Ошибка при отправке сообщения в группу: {e}")
         await message.reply("Произошла ошибка при отправке сообщения.")
 
+
 @dp.message()
 async def handle_admin_response(message: types.Message):
     try:
         # Проверяем, что это ответ админа на заявку
-        if not (message.chat.type == ChatType.PRIVATE and 
-                message.from_user.id in ADMIN_IDS and 
-                message.reply_to_message):
+        if not (message.chat.type == ChatType.PRIVATE and message.from_user.id
+                in ADMIN_IDS and message.reply_to_message):
             return
 
         reply_text = message.reply_to_message.text or message.reply_to_message.caption or ""
@@ -540,7 +693,8 @@ async def handle_admin_response(message: types.Message):
         user_id = None
         for line in reply_text.split('\n'):
             if line.startswith("#️⃣ ID:"):
-                user_id_str = line.split(":")[1].strip().replace("<code>", "").replace("</code>", "")
+                user_id_str = line.split(":")[1].strip().replace(
+                    "<code>", "").replace("</code>", "")
                 if user_id_str.isdigit():
                     user_id = int(user_id_str)
                 break
@@ -562,41 +716,41 @@ async def handle_admin_response(message: types.Message):
             await bot.send_message(
                 user_id,
                 f"<b>Ответ администратора:</b>\n\n{message.text}",
-                parse_mode=ParseMode.HTML
-            )
+                parse_mode=ParseMode.HTML)
 
-              # Формируем текст уведомления для других админов
+            # Формируем текст уведомления для других админов
             admin_name = f"<b>{admin.full_name}</b>"
             user_name = f"<b>{target_user.full_name}</b>"
 
-            notification_text = (
-                f"{admin_name} отправил ответ {user_name}:\n"
-                f"<code>{message.text}</code>"
-            )
+            notification_text = (f"{admin_name} отправил ответ {user_name}:\n"
+                                 f"<code>{message.text}</code>")
 
             # Отправляем уведомление другим админам
             for admin_id in ADMIN_IDS:
                 if admin_id != message.from_user.id:
                     try:
-                        await bot.send_message(
-                            admin_id,
-                            notification_text,
-                            parse_mode=ParseMode.HTML
-                        )
+                        await bot.send_message(admin_id,
+                                               notification_text,
+                                               parse_mode=ParseMode.HTML)
                     except Exception as e:
-                        logging.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+                        logging.error(
+                            f"Ошибка отправки уведомления админу {admin_id}: {e}"
+                        )
 
             await message.reply(f"Ответ успешно отправлен пользователю.")
 
         except Exception as e:
             error_msg = f"Не удалось отправить ответ: {str(e)}"
-            if "user is deactivated" in str(e) or "bot was blocked by the user" in str(e):
+            if "user is deactivated" in str(
+                    e) or "bot was blocked by the user" in str(e):
                 error_msg = "Пользователь заблокировал бота или удалил аккаунт"
             await message.reply(error_msg)
 
     except Exception as e:
-        logging.error(f"Ошибка в обработчике ответов админа: {str(e)}", exc_info=True)
+        logging.error(f"Ошибка в обработчике ответов админа: {str(e)}",
+                      exc_info=True)
         await message.reply("Произошла системная ошибка. Проверьте логи.")
+
 
 async def main():
     try:
@@ -607,6 +761,7 @@ async def main():
     except Exception as e:
         logging.error(f"Error: {e}")
         raise
+
 
 if __name__ == "__main__":
     asyncio.run(main())
