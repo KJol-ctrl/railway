@@ -264,7 +264,7 @@ async def set_custom_emoji(message: types.Message):
     await message.reply(f"Ваш персональный эмодзи установлен на {emoji}")
 
 
-@dp.message(lambda message: message.text.lower() in {"ауф", "бот", "ауф бот"})
+@dp.message(lambda message: message.text and message.text.lower() in {"ауф", "бот", "ауф бот"})
 async def handle_keywords(message: types.Message):
     if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
         await message.reply("Все мои волки делают ауф ☝️🐺")
