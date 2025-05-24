@@ -17,15 +17,15 @@ logging.basicConfig(level=logging.INFO,
                     datefmt='%H:%M:%S')
 
 # Константы для оптимизации
-TOKEN = os.environ['BOT_TOKEN']
-ADMIN_IDS = tuple(int(id) for id in os.environ['ADMIN_IDS'].split(','))
-GROUP_ID = int(os.environ['GROUP_ID'])
-GROUP_LINK = os.environ['GROUP_LINK']
-GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
-GOOGLE_CX_ID = os.environ.get('GOOGLE_CX_ID')
-LIST_ADMIN_ID = tuple(
-    int(id) for id in os.environ.get('LIST_ADMIN_ID', '').split(
-        ',')) if os.environ.get('LIST_ADMIN_ID') else ()
+from config import (
+    BOT_TOKEN as TOKEN,
+    ADMIN_IDS,
+    GROUP_ID,
+    GROUP_LINK,
+    GOOGLE_API_KEY,
+    GOOGLE_CX_ID,
+    LIST_ADMIN_ID
+)
 
 # Оптимизированная инициализация бота
 from aiogram.client.default import DefaultBotProperties
