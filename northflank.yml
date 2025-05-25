@@ -1,0 +1,27 @@
+
+project:
+  name: telegram-bot
+services:
+  bot:
+    name: bot
+    dockerfile: Dockerfile
+    instance:
+      type: standard
+      disk: 512MiB
+      memory: 512MiB
+      cpu: 300m
+    env:
+      - key: BOT_TOKEN
+        value: "вставь_сюда"
+      - key: ADMIN_IDS
+        value: "вставь"
+      - key: GROUP_ID
+        value: "вставь"
+      - key: GROUP_LINK
+        value: "вставь"
+      - key: GOOGLE_API_KEY
+        value: "вставь"
+      - key: GOOGLE_CX_ID
+        value: "вставь"
+      - key: LIST_ADMIN_ID
+        value: "вставь"
