@@ -216,7 +216,9 @@ async def photo(message: types.Message):
                 'q': query,
                 'searchType': 'image',
                 'num': 10,  # Количество изображений в результате
-                'safe': 'active'  # Включаем безопасный поиск
+                'safe': 'active',  # Включаем безопасный поиск
+                'imgType': 'photo',  # Только фотографии
+                'fileType': 'jpg,png,gif'  # Поддерживаемые форматы
             }
             response = requests.get(search_url, params=params)
             response.raise_for_status()
@@ -230,18 +232,36 @@ async def photo(message: types.Message):
                 for item in data['items']:
                     image_url = item.get('link')
                     # Проверяем, было ли это изображение отправлено раньше
-                    if image_url not in message_counts[user_id]:
-                        await bot.send_photo(message.chat.id, image_url)
-                        message_counts[user_id].append(
-                            image_url
-                        )  # Добавляем изображение в список отправленных
-                        return
+                    if image_url and image_url not in message_counts[user_id]:
+                        try:
+                            # Проверяем валидность URL изображения
+                            img_response = requests.head(image_url, timeout=5)
+                            content_type = img_response.headers.get(
+                                'content-type', '')
+
+                            # Проверяем, что это действительно изображение
+                            if img_response.status_code == 200 and content_type.startswith(
+                                    'image/'):
+                                await bot.send_photo(message.chat.id,
+                                                     image_url)
+                                message_counts[user_id].append(image_url)
+                                return
+                        except Exception as e:
+                            # Если изображение недоступно, пропускаем его
+                            logging.warning(
+                                f"Не удалось отправить изображение {image_url}: {e}"
+                            )
+                            continue
 
                 await message.answer("Извини, по запросу ничего не нашлось.")
             else:
                 await message.answer("Извини, по запросу ничего не нашлось.")
         except requests.exceptions.RequestException as e:
-            await message.answer(f"Ошибка при запросе к Google API: {e}")
+            logging.error(f"Ошибка при запросе к Google API: {e}")
+            await message.answer("Извини, произошла ошибка при поиске.")
+        except Exception as e:
+            logging.error(f"Неожиданная ошибка в функции поиска: {e}")
+            await message.answer("Извини, произошла ошибка.")
 
 
 @dp.message(F.text.lower().startswith("эмодзи"))
@@ -264,7 +284,8 @@ async def set_custom_emoji(message: types.Message):
     await message.reply(f"Ваш персональный эмодзи установлен на {emoji}")
 
 
-@dp.message(lambda message: message.text and message.text.lower() in {"ауф", "бот", "ауф бот"})
+@dp.message(lambda message: message.text and message.text.lower() in
+            {"ауф", "бот", "ауф бот"})
 async def handle_keywords(message: types.Message):
     if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
         await message.reply("Все мои волки делают ауф ☝️🐺")
@@ -331,10 +352,10 @@ async def rest_duration(message: types.Message, state: FSMContext):
 
     admin_message = f'''<b>Заявка на рест</b>
 
-От: <a href='tg://user?id={user_id}'>{message.from_user.full_name}{username}</a>
+#️⃣ ID: <code>{user_id}</code>
 📌 Роль: <b>{role.custom_title if role.custom_title else 'неизвестно'}</b>
-⚙️ Причина: {data['reason']}
-⌛️ Срок: {message.text}'''
+⌛️ Срок: {message.text}
+Причина: {data['reason']}'''
 
     for admin_id in ADMIN_IDS:
         await bot.send_message(admin_id, admin_message)
@@ -371,7 +392,8 @@ async def handle_complaint(message: types.Message, state: FSMContext):
     username = f" (@{message.from_user.username})" if message.from_user.username else ""
 
     for admin_id in ADMIN_IDS:
-        await bot.send_message(admin_id, f'''🔔 <b>Новая жалоба:</b>\n
+        await bot.send_message(admin_id, f'''🔔 <b>Новая жалоба:</b>
+
 {message.text}''')
 
     await message.answer("Жалоба отправлена администраторам. Ожидайте ответ.",
@@ -435,6 +457,7 @@ async def handle_user_info(message: types.Message, state: FSMContext):
         user_role = user_data[user_id].get("custom_title", "неизвестно")
 
     admin_message = f'''<b>Не может влиться!</b>\n
+#️⃣ ID: <code>{user_id}</code>
 📌 Роль: <b>{user_role}</b>{username}
 ⭐️ Фаворит: <b>{admin_choice}</b>
 О себе: {message.text}'''
@@ -679,6 +702,43 @@ async def admin_say_command(message: types.Message):
 @dp.message()
 async def handle_admin_response(message: types.Message):
     try:
+        # Антиспам проверка для пользователей не из группы
+        if (message.chat.type == ChatType.PRIVATE 
+            and message.from_user.id not in ADMIN_IDS):
+
+            user_id = message.from_user.id
+            if not await is_member(user_id) and not check_message_limit(user_id):
+                await message.answer(
+                    "Вы исчерпали лимит сообщений. Вступите в группу, чтобы продолжить общение с ботом. Если это баг, напишите <a href='https://t.me/alren15'>администратору</a>."
+                )
+                return
+
+        # Проверяем, не является ли это ответом пользователя на сообщение админа
+        if (message.chat.type == ChatType.PRIVATE 
+            and message.from_user.id not in ADMIN_IDS 
+            and message.reply_to_message):
+            
+            reply_text = message.reply_to_message.text or message.reply_to_message.caption or ""
+            
+            # Проверяем, что это ответ на сообщение от администратора
+            if "Ответ администратора:" in reply_text:
+                user = message.from_user
+                user_id = user.id
+                
+                # Отправляем ответ пользователя всем админам
+                admin_notification = f'''Пользователь <b>{user.full_name}</b> ответил:
+                
+<code>{message.text}</code>'''
+
+                for admin_id in ADMIN_IDS:
+                    try:
+                        await bot.send_message(admin_id, admin_notification, parse_mode=ParseMode.HTML)
+                    except Exception as e:
+                        logging.error(f"Ошибка отправки ответа пользователя админу {admin_id}: {e}")
+                
+                await message.reply("Ваш ответ отправлен администраторам.")
+                return
+
         # Проверяем, что это ответ админа на заявку
         if not (message.chat.type == ChatType.PRIVATE and message.from_user.id
                 in ADMIN_IDS and message.reply_to_message):
@@ -686,7 +746,13 @@ async def handle_admin_response(message: types.Message):
 
         reply_text = message.reply_to_message.text or message.reply_to_message.caption or ""
 
-        if "Заявка на вступление!" not in reply_text:
+        # Проверяем, что это одна из заявок, на которые можно отвечать
+        if not any(keyword in reply_text for keyword in [
+            "Заявка на вступление!", 
+            "Заявка на рест",
+            "Не может влиться!",
+            "ответил:"
+        ]):
             return
 
         # Парсим ID пользователя из заявки на вступление
@@ -718,12 +784,9 @@ async def handle_admin_response(message: types.Message):
                 f"<b>Ответ администратора:</b>\n\n{message.text}",
                 parse_mode=ParseMode.HTML)
 
-            # Формируем текст уведомления для других админов
-            admin_name = f"<b>{admin.full_name}</b>"
-            user_name = f"<b>{target_user.full_name}</b>"
+            # Формируем текст уведомления для других админов в правильном формате
 
-            notification_text = (f"{admin_name} отправил ответ {user_name}:\n"
-                                 f"<code>{message.text}</code>")
+            notification_text = f"{admin.full_name} отправил ответ {target_user.full_name}:\n\n<code>{message.text}</code>"
 
             # Отправляем уведомление другим админам
             for admin_id in ADMIN_IDS:
@@ -747,7 +810,7 @@ async def handle_admin_response(message: types.Message):
             await message.reply(error_msg)
 
     except Exception as e:
-        logging.error(f"Ошибка в обработчике ответов админа: {str(e)}",
+        logging.error(f"Ошибка в обработчике ответов: {str(e)}",
                       exc_info=True)
         await message.reply("Произошла системная ошибка. Проверьте логи.")
 
