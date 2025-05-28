@@ -209,59 +209,59 @@ async def photo(message: types.Message):
 
     if GOOGLE_API_KEY and GOOGLE_CX_ID:
         try:
+            import aiohttp
+            
             search_url = f"https://www.googleapis.com/customsearch/v1"
             params = {
                 'key': GOOGLE_API_KEY,
                 'cx': GOOGLE_CX_ID,
                 'q': query,
                 'searchType': 'image',
-                'num': 10,  # Количество изображений в результате
-                'safe': 'active',  # Включаем безопасный поиск
-                'imgType': 'photo',  # Только фотографии
-                'fileType': 'jpg,png,gif'  # Поддерживаемые форматы
+                'num': 5,  # Уменьшаем количество для быстроты
+                'safe': 'active',
+                'imgType': 'photo',
+                'fileType': 'jpg,png,gif'
             }
-            response = requests.get(search_url, params=params)
-            response.raise_for_status()
-            data = response.json()
+            
+            # Асинхронный запрос с коротким таймаутом
+            timeout = aiohttp.ClientTimeout(total=3)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(search_url, params=params) as response:
+                    if response.status != 200:
+                        await message.answer("Извини, по запросу ничего не нашлось.")
+                        return
+                    
+                    data = await response.json()
 
             if data.get('items'):
-                # Храним уже отправленные изображения
-                if user_id not in message_counts:
-                    message_counts[user_id] = []
-
-                for item in data['items']:
+                # Проверяем только первые 3 изображения для скорости
+                for item in data['items'][:5]:
                     image_url = item.get('link')
-                    # Проверяем, было ли это изображение отправлено раньше
-                    if image_url and image_url not in message_counts[user_id]:
+                    if image_url:
                         try:
-                            # Проверяем валидность URL изображения
-                            img_response = requests.head(image_url, timeout=5)
-                            content_type = img_response.headers.get(
-                                'content-type', '')
-
-                            # Проверяем, что это действительно изображение
-                            if img_response.status_code == 200 and content_type.startswith(
-                                    'image/'):
-                                await bot.send_photo(message.chat.id,
-                                                     image_url)
-                                message_counts[user_id].append(image_url)
-                                return
+                            # Быстрая проверка изображения с коротким таймаутом
+                            timeout = aiohttp.ClientTimeout(total=2)
+                            async with aiohttp.ClientSession(timeout=timeout) as session:
+                                async with session.head(image_url) as img_response:
+                                    content_type = img_response.headers.get('content-type', '')
+                                    
+                                    if img_response.status == 200 and content_type.startswith('image/'):
+                                        await bot.send_photo(message.chat.id, image_url)
+                                        return
                         except Exception as e:
-                            # Если изображение недоступно, пропускаем его
-                            logging.warning(
-                                f"Не удалось отправить изображение {image_url}: {e}"
-                            )
+                            # Быстро пропускаем проблемные изображения
+                            logging.debug(f"Пропускаем изображение {image_url}: {e}")
                             continue
 
                 await message.answer("Извини, по запросу ничего не нашлось.")
             else:
                 await message.answer("Извини, по запросу ничего не нашлось.")
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Ошибка при запросе к Google API: {e}")
-            await message.answer("Извини, произошла ошибка при поиске.")
+                
+        except asyncio.TimeoutError:
+            await message.answer("Поиск занял слишком много времени, попробуйте еще раз.")
         except Exception as e:
-            logging.error(f"Неожиданная ошибка в функции поиска: {e}")
-            await message.answer("Извини, произошла ошибка.")
+            logging.error(f"Ошибка в функции поиска: {e}")
+            await message.answer("Извини, произошла ошибка при поиске.")
 
 
 @dp.message(F.text.lower().startswith("эмодзи"))
