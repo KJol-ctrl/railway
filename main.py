@@ -5,11 +5,12 @@ from aiogram.enums import ParseMode, ChatType
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import ChatPermissions, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ChatPermissions, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 import random
 import requests
 import os
 from functools import lru_cache
+import json
 
 # Базовые настройки с оптимизированным логированием
 logging.basicConfig(level=logging.INFO,
@@ -37,6 +38,10 @@ dp = Dispatcher(storage=MemoryStorage())
 user_data = {}
 message_counts = {}
 MAX_MESSAGES = 5
+
+# Система викторин
+quiz_data = {}  # Хранит данные текущих викторин
+quiz_participants = {}  # Хранит ответы участников {quiz_id: {user_id: answer_index}}
 
 
 # Кэширование клавиатур
@@ -71,6 +76,11 @@ class Form(StatesGroup):
     duration = State()
     complaint = State()
 
+class QuizCreation(StatesGroup):
+    waiting_for_question = State()
+    waiting_for_answers = State()
+    waiting_for_correct = State()
+
 
 # Оптимизированная проверка членства
 async def is_member(user_id: int) -> bool:
@@ -88,7 +98,41 @@ def check_message_limit(user_id: int) -> bool:
     return count <= MAX_MESSAGES
 
 
-# Handlers
+# Обработчик callback для викторин
+@dp.callback_query(lambda c: c.data and c.data.startswith("quiz_"))
+async def quiz_callback_handler(callback: CallbackQuery):
+    try:
+        _, quiz_id_str, answer_index_str = callback.data.split("_")
+        quiz_id = int(quiz_id_str)
+        answer_index = int(answer_index_str)
+        user_id = callback.from_user.id
+        
+        # Проверяем, что викторина существует и активна
+        if quiz_id not in quiz_data or not quiz_data[quiz_id]['active']:
+            await callback.answer("Эта викторина уже завершена.", show_alert=True)
+            return
+        
+        # Проверяем, что пользователь участник группы
+        if not await is_member(user_id):
+            await callback.answer("Только участники группы могут участвовать в викторине.", show_alert=True)
+            return
+        
+        # Сохраняем ответ пользователя
+        quiz_participants[quiz_id][user_id] = answer_index
+        
+        # Получаем выбранный ответ
+        selected_answer = quiz_data[quiz_id]['answers'][answer_index]
+        
+        await callback.answer(f"Ваш ответ: {selected_answer}", show_alert=False)
+        
+        logging.info(f"Пользователь {user_id} ответил на викторину {quiz_id}: вариант {answer_index}")
+        
+    except (ValueError, IndexError) as e:
+        logging.error(f"Ошибка обработки callback викторины: {e}")
+        await callback.answer("Произошла ошибка.", show_alert=True)
+    except Exception as e:
+        logging.error(f"Неожиданная ошибка в callback викторины: {e}")
+        await callback.answer("Произошла ошибка.", show_alert=True)
 
 
 # Handlers
@@ -699,6 +743,191 @@ async def admin_say_command(message: types.Message):
         await message.reply("Произошла ошибка при отправке сообщения.")
 
 
+@dp.message(lambda m: m.chat.type == ChatType.PRIVATE and m.from_user.id in
+            ADMIN_IDS and m.text and m.text.lower() == "создать викторину")
+async def create_quiz_start(message: types.Message, state: FSMContext):
+    await message.reply("Напишите вопрос для викторины.")
+    await state.set_state(QuizCreation.waiting_for_question)
+
+
+@dp.message(QuizCreation.waiting_for_question)
+async def quiz_question_handler(message: types.Message, state: FSMContext):
+    await state.update_data(question=message.text)
+    await message.reply("Теперь напишите варианты ответов, каждый с новой строки.")
+    await state.set_state(QuizCreation.waiting_for_answers)
+
+
+@dp.message(QuizCreation.waiting_for_answers)
+async def quiz_answers_handler(message: types.Message, state: FSMContext):
+    answers = [answer.strip() for answer in message.text.split('\n') if answer.strip()]
+    
+    if len(answers) < 2:
+        await message.reply("Нужно минимум 2 варианта ответа. Попробуйте снова.")
+        return
+    
+    if len(answers) > 6:
+        await message.reply("Максимум 6 вариантов ответа. Попробуйте снова.")
+        return
+    
+    await state.update_data(answers=answers)
+    
+    # Показываем варианты с номерами
+    answer_list = "\n".join([f"{i+1}. {answer}" for i, answer in enumerate(answers)])
+    await message.reply(f"<b>Варианты ответов:</b>\n{answer_list}\n\nУкажите номера правильных ответов через запятую. <b>Например: 1,3.</b>")
+    await state.set_state(QuizCreation.waiting_for_correct)
+
+
+@dp.message(QuizCreation.waiting_for_correct)
+async def quiz_correct_handler(message: types.Message, state: FSMContext):
+    try:
+        correct_indices = [int(x.strip()) - 1 for x in message.text.split(',')]
+        data = await state.get_data()
+        answers = data['answers']
+        
+        # Проверяем валидность индексов
+        if any(idx < 0 or idx >= len(answers) for idx in correct_indices):
+            await message.reply("Неверные номера ответов. Попробуйте снова.")
+            return
+        
+        # Создаем викторину
+        quiz_id = len(quiz_data) + 1
+        quiz_data[quiz_id] = {
+            'question': data['question'],
+            'answers': answers,
+            'correct_indices': correct_indices,
+            'active': True,
+            'creator_id': message.from_user.id
+        }
+        quiz_participants[quiz_id] = {}
+        
+        # Создаем inline клавиатуру
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=answer, callback_data=f"quiz_{quiz_id}_{i}")]
+            for i, answer in enumerate(answers)
+        ])
+        
+        # Отправляем викторину в группу
+        quiz_message = f"📝 <b>Викторина\n\n{data['question']}</b>"
+        await bot.send_message(GROUP_ID, quiz_message, reply_markup=keyboard)
+        
+        await message.reply(f"Викторина #{quiz_id} создана и отправлена в группу!\n\n<b>Для завершения викторины напишите: завершить викторину {quiz_id}</b>")
+        await state.clear()
+        
+    except ValueError:
+        await message.reply("Неверный формат. Укажите номера через запятую. <b>Например: 1,3.</b>")
+
+
+@dp.message(lambda m: m.chat.type == ChatType.PRIVATE and m.from_user.id in
+            ADMIN_IDS and m.text and m.text.lower().startswith("завершить викторину "))
+async def end_quiz_command(message: types.Message):
+    try:
+        quiz_id = int(message.text.split()[-1])
+        
+        if quiz_id not in quiz_data:
+            await message.reply("Викторина с таким номером не найдена.")
+            return
+        
+        if not quiz_data[quiz_id]['active']:
+            await message.reply("Эта викторина уже завершена.")
+            return
+        
+        # Завершаем викторину
+        quiz_data[quiz_id]['active'] = False
+        
+        # Подсчитываем результаты
+        correct_users = []
+        incorrect_users = []
+        correct_indices = set(quiz_data[quiz_id]['correct_indices'])
+        
+        for user_id, answer_index in quiz_participants[quiz_id].items():
+            try:
+                user = await bot.get_chat(user_id)
+                user_name = user.full_name
+                if user.username:
+                    user_name += f" (@{user.username})"
+                
+                if answer_index in correct_indices:
+                    correct_users.append(user_name)
+                else:
+                    incorrect_users.append(user_name)
+            except Exception as e:
+                logging.error(f"Ошибка получения информации о пользователе {user_id}: {e}")
+        
+        # Формируем сообщение с результатами
+        results_message = f"<b> Викторина завершена!</b>\n\n"
+        results_message += f"📝 Вопрос: <b>{quiz_data[quiz_id]['question']}</b>\n\n"
+        
+        correct_answers = [quiz_data[quiz_id]['answers'][i] for i in correct_indices]
+        results_message += f"✅  Правильный ответ: <b>{', '.join(correct_answers)}</b>\n\n"
+        
+        if correct_users:
+            results_message += f" <b>Правильно ответили ({len(correct_users)}):</b>\n"
+            for user in correct_users:
+                results_message += f"• {user}"
+        else:
+            results_message += " Никто не ответил правильно"
+        
+        if incorrect_users:
+            results_message += f"\n<b>Неправильно ответили ({len(incorrect_users)}):</b>\n"
+            for user in incorrect_users:
+                results_message += f"• {user}\n"
+        
+        
+        # Отправляем результаты в группу
+        await bot.send_message(GROUP_ID, results_message)
+        
+        # Формируем детальную статистику по вариантам ответов
+        total_participants = len(quiz_participants[quiz_id])
+        stats_message = "📊 <b>Детальная статистика:</b>\n\n"
+        
+        # Группируем участников по их ответам
+        answer_stats = {}
+        for user_id, answer_index in quiz_participants[quiz_id].items():
+            if answer_index not in answer_stats:
+                answer_stats[answer_index] = []
+            answer_stats[answer_index].append(user_id)
+        
+        # Формируем статистику для каждого варианта ответа
+        for i, answer in enumerate(quiz_data[quiz_id]['answers']):
+            users_who_chose = answer_stats.get(i, [])
+            count = len(users_who_chose)
+            percentage = (count / total_participants * 100) if total_participants > 0 else 0
+            
+            stats_message += f"<b>{answer}</b>\n"
+            stats_message += f"└ {count} чел. ({percentage:.1f}%)\n"
+            
+            if users_who_chose:
+                user_names = []
+                for user_id in users_who_chose:
+                    try:
+                        user = await bot.get_chat(user_id)
+                        user_name = user.full_name
+                        if user.username:
+                            user_name += f" (@{user.username})"
+                        user_names.append(user_name)
+                    except Exception as e:
+                        logging.error(f"Ошибка получения информации о пользователе {user_id}: {e}")
+                        user_names.append(f"ID: {user_id}")
+                
+                stats_message += f"└ {', '.join(user_names)}\n"
+            else:
+                stats_message += "└ Никто не выбрал\n"
+            
+            stats_message += "\n"
+        
+        # Отправляем детальную статистику
+        await bot.send_message(GROUP_ID, stats_message)
+        
+        # Уведомляем админа
+        await message.reply(f"Викторина #{quiz_id} завершена. Результаты отправлены в группу.")
+        
+    except (ValueError, IndexError):
+        await message.reply("Неверный формат команды. Используйте: завершить викторину [номер].")
+    except Exception as e:
+        logging.error(f"Ошибка при завершении викторины: {e}")
+        await message.reply("Произошла ошибка при завершении викторины.")
+
+
 @dp.message()
 async def handle_admin_response(message: types.Message):
     try:
@@ -820,7 +1049,7 @@ async def main():
         # Оптимизированная инициализация
         await save_existing_members_titles()
         logging.info("Bot started")
-        await dp.start_polling(bot, allowed_updates=["message", "chat_member"])
+        await dp.start_polling(bot, allowed_updates=["message", "chat_member", "callback_query"])
     except Exception as e:
         logging.error(f"Error: {e}")
         raise
