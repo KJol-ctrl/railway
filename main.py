@@ -1,3 +1,4 @@
+
 import logging
 import asyncio
 from aiogram import Bot, Dispatcher, F, types
@@ -11,6 +12,9 @@ import requests
 import os
 from functools import lru_cache
 import json
+
+# Импортируем базу данных
+from db import db
 
 # Базовые настройки с оптимизированным логированием
 logging.basicConfig(level=logging.INFO,
@@ -34,14 +38,13 @@ from aiogram.client.default import DefaultBotProperties
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
-# Оптимизированное хранение данных
-user_data = {}
+# Временное хранение для сообщений (антиспам)
 message_counts = {}
 MAX_MESSAGES = 5
 
-# Система викторин
-quiz_data = {}  # Хранит данные текущих викторин
-quiz_participants = {}  # Хранит ответы участников {quiz_id: {user_id: answer_index}}
+# Система викторин - теперь загружается из БД
+quiz_data = {}
+quiz_participants = {}
 
 
 # Кэширование клавиатур
@@ -98,6 +101,38 @@ def check_message_limit(user_id: int) -> bool:
     return count <= MAX_MESSAGES
 
 
+# Функция для назначения эмодзи с автоматическим сохранением
+async def assign_emoji_to_user(user_id: int) -> str:
+    """Назначает эмодзи пользователю и сохраняет в БД"""
+    emojis = [
+        "⭐️", "🌟", "💫", "⚡️", "🔥", "❤️", "💞", "💕", "❣️", "💌", "🌈", "✨",
+        "🎯", "🎪", "🎨", "🎭", "🎪", "🎢", "🎡", "🎠", "🎪", "🌸", "🌺", "🌷",
+        "🌹", "🌻", "🌼", "💐", "🌾", "🌿", "☘️", "🍀", "🍁", "🍂", "🍃", "🌵",
+        "🌴", "🌳", "🌲", "🎄", "🌊", "🌈", "☀️", "🌤", "⛅️", "☁️", "🌦", "🌨",
+        "❄️", "☃️", "🌬", "💨", "🌪", "🌫", "🌈", "☔️", "⚡️", "❄️", "🔮",
+        "🎮", "🎲", "🎯", "🎳", "🎪", "🎭", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹",
+        "🥁", "🎷", "🎺", "🎸", "🪕", "🎻", "🎲", "♟", "🎯", "🎳", "🎮", "🎰",
+        "🧩", "🎪", "🎭", "🎨", "🖼", "🎨", "🧵", "🧶", "👑", "💎", "⚜️"
+    ]
+    
+    # Проверяем, есть ли уже эмодзи у пользователя
+    existing_emoji = await db.get_emoji(user_id)
+    if existing_emoji:
+        return existing_emoji
+    
+    # Получаем уже используемые эмодзи
+    used_emojis = await db.get_used_emojis()
+    available_emojis = [e for e in emojis if e not in used_emojis]
+    
+    if available_emojis:
+        selected_emoji = random.choice(available_emojis)
+        await db.save_emoji(user_id, selected_emoji)
+        return selected_emoji
+    
+    # Если все эмодзи заняты, возвращаем дефолтный
+    return "👤"
+
+
 # Обработчик callback для викторин
 @dp.callback_query(lambda c: c.data and c.data.startswith("quiz_"))
 async def quiz_callback_handler(callback: CallbackQuery):
@@ -107,8 +142,9 @@ async def quiz_callback_handler(callback: CallbackQuery):
         answer_index = int(answer_index_str)
         user_id = callback.from_user.id
         
-        # Проверяем, что викторина существует и активна
-        if quiz_id not in quiz_data or not quiz_data[quiz_id]['active']:
+        # Проверяем, что викторина существует и активна в БД
+        quiz = await db.get_quiz(quiz_id)
+        if not quiz or not quiz['active']:
             await callback.answer("Эта викторина уже завершена.", show_alert=True)
             return
         
@@ -117,11 +153,11 @@ async def quiz_callback_handler(callback: CallbackQuery):
             await callback.answer("Только участники группы могут участвовать в викторине.", show_alert=True)
             return
         
-        # Сохраняем ответ пользователя
-        quiz_participants[quiz_id][user_id] = answer_index
+        # Сохраняем ответ пользователя в БД
+        await db.save_quiz_answer(quiz_id, user_id, answer_index)
         
         # Получаем выбранный ответ
-        selected_answer = quiz_data[quiz_id]['answers'][answer_index]
+        selected_answer = quiz['answers'][answer_index]
         
         await callback.answer(f"Ваш ответ: {selected_answer}", show_alert=False)
         
@@ -190,7 +226,9 @@ async def age_verify_text_handler(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     data = await state.get_data()
     role = data.get('role')
-    user_data[user_id] = {"role": role}
+    
+    # Сохраняем данные пользователя в БД
+    await db.save_user_data(user_id, role=role)
 
     await message.answer(
         f' Перейдите по <a href="{GROUP_LINK}"><b>ссылке (нажать)</b></a>. Ваша заявка будет рассмотрена в ближайшее время.\n\n Для повторного заполнения - /start',
@@ -217,7 +255,9 @@ async def age_verify_any_handler(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     data = await state.get_data()
     role = data.get('role')
-    user_data[user_id] = {"role": role}
+    
+    # Сохраняем данные пользователя в БД
+    await db.save_user_data(user_id, role=role)
 
     await message.answer(
         f' Перейдите по <a href="{GROUP_LINK}"><b>ссылке (нажать)</b></a>. Ваша заявка будет рассмотрена в ближайшее время. <b>Не удаляйте чат.</b>\n\n Для повторного заполнения - /start',
@@ -321,10 +361,8 @@ async def set_custom_emoji(message: types.Message):
         await message.reply("Пожалуйста, укажите эмодзи после команды.")
         return
 
-    if 'user_emojis' not in user_data:
-        user_data['user_emojis'] = {}
-
-    user_data['user_emojis'][user_id] = emoji
+    # Сохраняем эмодзи в БД
+    await db.save_emoji(user_id, emoji)
     await message.reply(f"Ваш персональный эмодзи установлен на {emoji}")
 
 
@@ -495,10 +533,9 @@ async def handle_user_info(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     username = f" (@{message.from_user.username})" if message.from_user.username else ""
 
-    # Получаем роль пользователя
-    user_role = "неизвестно"
-    if user_id in user_data:
-        user_role = user_data[user_id].get("custom_title", "неизвестно")
+    # Получаем роль пользователя из БД
+    user_data_db = await db.get_user_data(user_id)
+    user_role = user_data_db.get("custom_title", "неизвестно")
 
     admin_message = f'''<b>Не может влиться!</b>\n
 #️⃣ ID: <code>{user_id}</code>
@@ -539,8 +576,11 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
     if (old_status == "member"
             and new_status == "left") or (old_status == "administrator"
                                           and new_status == "left"):
-        if user_id in user_data:
-            custom_title = user_data[user_id].get("custom_title", "Неизвестно")
+        # Получаем данные из БД
+        user_data_db = await db.get_user_data(user_id)
+        custom_title = user_data_db.get("custom_title", "Неизвестно")
+        
+        if custom_title != "Неизвестно":
             username = f" (@{update.new_chat_member.user.username})" if update.new_chat_member.user.username else ""
             leave_message = f"😢 Пользователь <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}{username}</a> с ролью <b>{custom_title}</b> покинул группу"
             await bot.send_message(chat_id, leave_message)
@@ -555,15 +595,21 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
                 await bot.send_message(
                     admin_id, f"Освободилась роль: <b>{custom_title}</b>")
 
-            if 'user_emojis' in user_data and user_id in user_data[
-                    'user_emojis']:
-                del user_data['user_emojis'][user_id]
-            user_data.pop(user_id, None)
+            # Удаляем данные пользователя из БД
+            await db.remove_emoji(user_id)
+            await db.remove_user_data(user_id)
             return
 
     # Обработка вступления в группу
-    if new_status == "member" and user_id in user_data and not update.new_chat_member.user.is_bot:
+    if new_status == "member" and not update.new_chat_member.user.is_bot:
         try:
+            # Получаем данные пользователя из БД
+            user_data_db = await db.get_user_data(user_id)
+            role = user_data_db.get("role")
+            
+            if not role:
+                return
+
             # Проверяем права бота
             bot_member = await bot.get_chat_member(chat_id, (await
                                                              bot.me()).id)
@@ -577,7 +623,6 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
                     )
                 return
 
-            role = user_data[user_id]["role"]
             await bot.promote_chat_member(chat_id,
                                           user_id,
                                           can_change_info=False,
@@ -588,50 +633,22 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
                                           can_promote_members=False)
             await bot.set_chat_administrator_custom_title(
                 chat_id, user_id, role)
-            user_data[user_id]["custom_title"] = role
+            
+            # Сохраняем custom_title в БД
+            await db.save_user_data(user_id, custom_title=role)
 
+            # Получаем всех админов и назначаем им эмодзи
             members = await bot.get_chat_administrators(chat_id)
             tags = []
-            emojis = [
-                "⭐️", "🌟", "💫", "⚡️", "🔥", "❤️", "💞", "💕", "❣️", "💌", "🌈", "✨",
-                "🎯", "🎪", "🎨", "🎭", "🎪", "🎢", "🎡", "🎠", "🎪", "🌸", "🌺", "🌷",
-                "🌹", "🌻", "🌼", "💐", "🌾", "🌿", "☘️", "🍀", "🍁", "🍂", "🍃", "🌵",
-                "🌴", "🌳", "🌲", "🎄", "🌊", "🌈", "☀️", "🌤", "⛅️", "☁️", "🌦", "🌨",
-                "❄️", "☃️", "🌬", "💨", "🌪", "🌫", "🌈", "☔️", "⚡️", "❄️", "🔮",
-                "🎮", "🎲", "🎯", "🎳", "🎪", "🎭", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹",
-                "🥁", "🎷", "🎺", "🎸", "🪕", "🎻", "🎲", "♟", "🎯", "🎳", "🎮", "🎰",
-                "🧩", "🎪", "🎭", "🎨", "🖼", "🎨", "🧵", "🧶", "👑", "💎", "⚜️"
-            ]
 
-            # Создаем или получаем словарь для хранения эмодзи пользователей
-            if 'user_emojis' not in user_data:
-                user_data['user_emojis'] = {}
-
-            # Назначаем эмодзи новому участнику
-            if user_id not in user_data['user_emojis']:
-                available_emojis = [
-                    e for e in emojis
-                    if e not in user_data['user_emojis'].values()
-                ]
-                if available_emojis:
-                    user_data['user_emojis'][user_id] = random.choice(
-                        available_emojis)
-
+            # Назначаем эмодзи новому участнику и другим админам
             for member in members:
                 if not member.user.is_bot:
                     member_id = member.user.id
-                    if member_id not in user_data['user_emojis']:
-                        available_emojis = [
-                            e for e in emojis
-                            if e not in user_data['user_emojis'].values()
-                        ]
-                        if available_emojis:
-                            user_data['user_emojis'][
-                                member_id] = random.choice(available_emojis)
-
-                    emoji = user_data['user_emojis'].get(member_id, "👤")
+                    emoji = await assign_emoji_to_user(member_id)
                     tag = f"<a href='tg://user?id={member_id}'>{emoji}</a>"
                     tags.append(tag)
+
             # Разбиваем теги на группы по 10
             tag_chunks = [tags[i:i + 10] for i in range(0, len(tags), 10)]
 
@@ -664,8 +681,11 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
                     f"Ошибка при назначении роли пользователю {update.new_chat_member.user.full_name}: {str(e)}"
                 )
     elif update.new_chat_member.status in {"left", "kicked"}:
-        if user_id in user_data:
-            custom_title = user_data[user_id].get("custom_title", "Неизвестно")
+        # Получаем данные из БД
+        user_data_db = await db.get_user_data(user_id)
+        custom_title = user_data_db.get("custom_title", "Неизвестно")
+        
+        if custom_title != "Неизвестно":
             username = f" (@{update.new_chat_member.user.username})" if update.new_chat_member.user.username else ""
             leave_message = f"😢 Пользователь <a href='tg://user?id={user_id}'>{update.new_chat_member.user.full_name}{username}</a> с ролью <b>{custom_title}</b> покинул группу"
             # Отправляем сообщение в группу
@@ -682,26 +702,36 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
                 await bot.send_message(
                     admin_id, f"Освободилась роль:<b>{custom_title}</b>")
 
-            # Удаляем эмодзи пользователя если он есть
-            if 'user_emojis' in user_data and user_id in user_data[
-                    'user_emojis']:
-                del user_data['user_emojis'][user_id]
-            user_data.pop(user_id, None)
+            # Удаляем данные пользователя из БД
+            await db.remove_emoji(user_id)
+            await db.remove_user_data(user_id)
 
 
-# Оптимизированный запуск
-async def save_existing_members_titles():
+# Загрузка данных из БД при запуске
+async def load_data_from_db():
+    """Загружает данные из БД в память при запуске бота"""
     try:
-        chat = await bot.get_chat(GROUP_ID)
-        members = await bot.get_chat_administrators(GROUP_ID)
-        for member in members:
-            if member.custom_title and member.user.id not in user_data:
-                user_data[member.user.id] = {
-                    "role": member.custom_title,
-                    "custom_title": member.custom_title
-                }
+        # Загружаем викторины
+        global quiz_data, quiz_participants
+        active_quizzes = await db.get_all_active_quizzes()
+        quiz_data = active_quizzes
+        
+        # Загружаем участников викторин
+        for quiz_id in active_quizzes.keys():
+            participants = await db.get_quiz_participants(quiz_id)
+            quiz_participants[quiz_id] = participants
+        
+        logging.info(f"Загружено {len(active_quizzes)} активных викторин")
+        
     except Exception as e:
-        logging.error(f"Ошибка при сохранении титулов: {e}")
+        logging.error(f"Ошибка при загрузке данных из БД: {e}")
+
+
+# Оптимизированная проверка лимита сообщений
+def check_message_limit(user_id: int) -> bool:
+    count = message_counts.get(user_id, 0) + 1
+    message_counts[user_id] = count
+    return count <= MAX_MESSAGES
 
 
 # Обработчик ответов админов на заявки пользователей
@@ -789,8 +819,20 @@ async def quiz_correct_handler(message: types.Message, state: FSMContext):
             await message.reply("Неверные номера ответов. Попробуйте снова.")
             return
         
-        # Создаем викторину
+        # Создаем викторину с уникальным ID
         quiz_id = len(quiz_data) + 1
+        
+        # Сохраняем викторину в БД
+        await db.save_quiz(
+            quiz_id=quiz_id,
+            chat_id=GROUP_ID,
+            question=data['question'],
+            answers=answers,
+            correct_indices=correct_indices,
+            creator_id=message.from_user.id
+        )
+        
+        # Также сохраняем в локальной памяти для работы бота
         quiz_data[quiz_id] = {
             'question': data['question'],
             'answers': answers,
@@ -823,23 +865,30 @@ async def end_quiz_command(message: types.Message):
     try:
         quiz_id = int(message.text.split()[-1])
         
-        if quiz_id not in quiz_data:
+        # Проверяем викторину в БД
+        quiz = await db.get_quiz(quiz_id)
+        if not quiz:
             await message.reply("Викторина с таким номером не найдена.")
             return
         
-        if not quiz_data[quiz_id]['active']:
+        if not quiz['active']:
             await message.reply("Эта викторина уже завершена.")
             return
         
-        # Завершаем викторину
-        quiz_data[quiz_id]['active'] = False
+        # Завершаем викторину в БД
+        await db.deactivate_quiz(quiz_id)
+        
+        # Обновляем локальные данные
+        if quiz_id in quiz_data:
+            quiz_data[quiz_id]['active'] = False
         
         # Подсчитываем результаты
+        participants = await db.get_quiz_participants(quiz_id)
         correct_users = []
         incorrect_users = []
-        correct_indices = set(quiz_data[quiz_id]['correct_indices'])
+        correct_indices = set(quiz['correct_indices'])
         
-        for user_id, answer_index in quiz_participants[quiz_id].items():
+        for user_id, answer_index in participants.items():
             try:
                 user = await bot.get_chat(user_id)
                 user_name = user.full_name
@@ -855,9 +904,9 @@ async def end_quiz_command(message: types.Message):
         
         # Формируем сообщение с результатами
         results_message = f"<b> Викторина завершена!</b>\n\n"
-        results_message += f"📝 Вопрос: <b>{quiz_data[quiz_id]['question']}</b>\n\n"
+        results_message += f"📝 Вопрос: <b>{quiz['question']}</b>\n\n"
         
-        correct_answers = [quiz_data[quiz_id]['answers'][i] for i in correct_indices]
+        correct_answers = [quiz['answers'][i] for i in correct_indices]
         results_message += f"✅  Правильный ответ: <b>{', '.join(correct_answers)}</b>\n\n"
         
         if correct_users:
@@ -877,18 +926,18 @@ async def end_quiz_command(message: types.Message):
         await bot.send_message(GROUP_ID, results_message)
         
         # Формируем детальную статистику по вариантам ответов
-        total_participants = len(quiz_participants[quiz_id])
+        total_participants = len(participants)
         stats_message = "📊 <b>Детальная статистика:</b>\n\n"
         
         # Группируем участников по их ответам
         answer_stats = {}
-        for user_id, answer_index in quiz_participants[quiz_id].items():
+        for user_id, answer_index in participants.items():
             if answer_index not in answer_stats:
                 answer_stats[answer_index] = []
             answer_stats[answer_index].append(user_id)
         
         # Формируем статистику для каждого варианта ответа
-        for i, answer in enumerate(quiz_data[quiz_id]['answers']):
+        for i, answer in enumerate(quiz['answers']):
             users_who_chose = answer_stats.get(i, [])
             count = len(users_who_chose)
             percentage = (count / total_participants * 100) if total_participants > 0 else 0
@@ -1046,13 +1095,22 @@ async def handle_admin_response(message: types.Message):
 
 async def main():
     try:
-        # Оптимизированная инициализация
-        await save_existing_members_titles()
+        # Подключаемся к базе данных
+        if not await db.connect():
+            logging.error("Не удалось подключиться к базе данных. Остановка бота.")
+            return
+        
+        # Загружаем данные из БД
+        await load_data_from_db()
+        
         logging.info("Bot started")
         await dp.start_polling(bot, allowed_updates=["message", "chat_member", "callback_query"])
     except Exception as e:
         logging.error(f"Error: {e}")
         raise
+    finally:
+        # Закрываем соединение с БД при остановке
+        await db.close()
 
 
 if __name__ == "__main__":
