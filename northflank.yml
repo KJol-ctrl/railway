@@ -1,4 +1,3 @@
-
 project:
   name: telegram-bot
 services:
@@ -25,3 +24,5 @@ services:
         value: "вставь"
       - key: LIST_ADMIN_ID
         value: "вставь"
+      - key: DATABASE_URL
+        value: "вставь_database_url"
