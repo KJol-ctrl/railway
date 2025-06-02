@@ -1010,62 +1010,104 @@ async def end_quiz_command(message: types.Message):
 async def admin_reply_handler(message: types.Message):
     if not message.text:
         return
-    text = message.text.strip()
-    reply = message.reply_to_message
-    reply_text = reply.text or reply.caption or ""
-    user_id = None
+    
+    # Проверяем, что это ответ админа на заявку
+    if not (message.chat.type == ChatType.PRIVATE and message.from_user.id
+            in ADMIN_IDS and message.reply_to_message):
+        return
 
-    # Парсим ID пользователя
-    for line in reply_text.splitlines():
+    reply_text = message.reply_to_message.text or message.reply_to_message.caption or ""
+
+    # Проверяем, что это одна из заявок, на которые можно отвечать
+    if not any(keyword in reply_text for keyword in [
+        "Заявка на вступление!", 
+        "Заявка на рест",
+        "Не может влиться!",
+        "ответил:"
+    ]):
+        return
+
+    # Парсим ID пользователя из заявки на вступление
+    user_id = None
+    for line in reply_text.split('\n'):
         if line.startswith("#️⃣ ID:"):
-            try:
-                user_id = int(line.split("<code>")[1].split("</code>")[0])
-                break
-            except:
-                pass
+            user_id_str = line.split(":")[1].strip().replace(
+                "<code>", "").replace("</code>", "")
+            if user_id_str.isdigit():
+                user_id = int(user_id_str)
+            break
 
     # Альтернативный парсинг если ID не найден
     if not user_id and "tg://user?id=" in reply_text:
-        try:
-            user_id = int(reply_text.split("tg://user?id=")[1].split("'")[0])
-        except:
-            pass
+        user_id = int(reply_text.split("tg://user?id=")[1].split("'")[0])
 
     if not user_id:
         await message.reply("Не удалось определить ID пользователя.")
         return
 
-    # Команда смены роли
-    if text.lower().startswith("роль "):
-        new_role = text[5:].strip()
-        if not new_role:
+    # Проверяем команду изменения роли
+    if message.text.lower().startswith("роль "):
+        new_role = message.text[5:].strip()
+        if new_role:
+            try:
+                target_user = await bot.get_chat(user_id)
+
+                # Обновляем роль в заявке
+                await db.update_application_role(user_id, new_role)
+
+                # Обновляем роль в данных пользователя
+                await db.save_user_data(user_id, role=new_role)
+
+                # Уведомляем админов об изменении роли
+                role_change_message = f"Роль {target_user.full_name} изменена на <b>{new_role}</b>"
+
+                for admin_id in ADMIN_IDS:
+                    try:
+                        await bot.send_message(admin_id, role_change_message, parse_mode=ParseMode.HTML)
+                    except Exception as e:
+                        logging.error(f"Ошибка отправки уведомления об изменении роли админу {admin_id}: {e}")
+
+                await message.reply(f"Роль пользователя изменена на: {new_role}")
+                return
+            except Exception as e:
+                await message.reply(f"Ошибка при изменении роли: {str(e)}")
+                return
+        else:
             await message.reply("Укажите новую роль после команды 'роль'")
             return
-            
-        try:
-            # Обновляем роль в заявке и данных пользователя
-            await db.save_user_data(user_id, role=new_role)
-            
-            user = await bot.get_chat(user_id)
-            user_mention = f"<a href='tg://user?id={user.id}'>{user.full_name}</a>"
 
-            notify = f"Роль {user_mention} изменена на <b>{new_role}</b>"
-            for admin_id in ADMIN_IDS:
-                await bot.send_message(admin_id, notify, parse_mode=ParseMode.HTML)
-            
-            await message.reply(f"Роль пользователя изменена на: {new_role}")
-            return
-        except Exception as e:
-            await message.reply(f"Ошибка при изменении роли: {str(e)}")
-            return
-
-    # Иначе — обычный ответ на заявку
+    # Получаем информацию об админе и пользователе
     try:
-        await bot.send_message(user_id, f"<b>Ответ администратора:</b>\n\n{message.text}", parse_mode=ParseMode.HTML)
-        await message.reply("Ответ отправлен пользователю.")
+        admin = message.from_user
+        target_user = await bot.get_chat(user_id)
+
+        # Отправляем ответ пользователю
+        await bot.send_message(
+            user_id,
+            f"<b>Ответ администратора:</b>\n\n{message.text}",
+            parse_mode=ParseMode.HTML)
+
+        # Формируем текст уведомления для других админов в правильном формате
+        notification_text = f"{admin.full_name} отправил ответ {target_user.full_name}:\n\n<code>{message.text}</code>"
+
+        # Отправляем уведомление другим админам
+        for admin_id in ADMIN_IDS:
+            if admin_id != message.from_user.id:
+                try:
+                    await bot.send_message(admin_id,
+                                           notification_text,
+                                           parse_mode=ParseMode.HTML)
+                except Exception as e:
+                    logging.error(
+                        f"Ошибка отправки уведомления админу {admin_id}: {e}"
+                    )
+
+        await message.reply(f"Ответ успешно отправлен пользователю.")
+
     except Exception as e:
         error_msg = f"Не удалось отправить ответ: {str(e)}"
-        if "user is deactivated" in str(e) or "bot was blocked by the user" in str(e):
+        if "user is deactivated" in str(
+                e) or "bot was blocked by the user" in str(e):
             error_msg = "Пользователь заблокировал бота или удалил аккаунт"
         await message.reply(error_msg)
 
