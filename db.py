@@ -657,6 +657,22 @@ class Database:
                 DELETE FROM active_applications 
                 WHERE expires_at <= CURRENT_TIMESTAMP
             """)
+    
+    async def save_application(self, user_id: int, role: str):
+        """Сохранение заявки пользователя (алиас для save_application)"""
+        await self.save_application_internal(user_id, role)
+    
+    async def save_application_internal(self, user_id: int, role: str):
+        """Внутренний метод сохранения заявки"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO active_applications (user_id, role)
+                VALUES ($1, $2)
+                ON CONFLICT (user_id) 
+                DO UPDATE SET role = EXCLUDED.role, 
+                             created_at = CURRENT_TIMESTAMP,
+                             expires_at = CURRENT_TIMESTAMP + INTERVAL '5 days'
+            """, user_id, role)
 
 # Глобальный экземпляр базы данных
 db = Database()
