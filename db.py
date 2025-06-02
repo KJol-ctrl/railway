@@ -2,7 +2,7 @@ import asyncpg
 import json
 import logging
 import os
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 
 class Database:
     def __init__(self):
@@ -69,6 +69,113 @@ class Database:
                     answer_index INTEGER NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (quiz_id, user_id)
+                );
+            """)
+            
+            # Таблица для истории пребывания в группе
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_group_history (
+                    user_id BIGINT,
+                    join_time TIMESTAMP NOT NULL,
+                    leave_time TIMESTAMP,
+                    PRIMARY KEY (user_id, join_time)
+                );
+            """)
+            
+            # Таблица для активных заявок
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS active_applications (
+                    user_id BIGINT PRIMARY KEY,
+                    role TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP + INTERVAL '5 days')
+                );
+            """)
+            
+            # Таблица для истории входов/выходов пользователей
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_join_history (
+                    user_id BIGINT,
+                    joined_at TIMESTAMP,
+                    left_at TIMESTAMP
+                );
+            """)
+            
+            # Таблица для ожидающих заявок
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS pending_applications (
+                    user_id BIGINT PRIMARY KEY,
+                    role TEXT,
+                    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            
+            # Таблица для сессий игры Жених
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bride_game_sessions (
+                    session_id SERIAL PRIMARY KEY,
+                    creator_id BIGINT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    started BOOLEAN DEFAULT FALSE
+                );
+            """)
+            
+            # Таблица для участников сессий игры Жених
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bride_game_participants (
+                    session_id INT,
+                    user_id BIGINT,
+                    user_number INT,
+                    eliminated BOOLEAN DEFAULT FALSE,
+                    is_bride BOOLEAN DEFAULT FALSE,
+                    PRIMARY KEY (session_id, user_id)
+                );
+            """)
+            
+            # Таблица для игр "Жених"
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bride_games (
+                    game_id SERIAL PRIMARY KEY,
+                    group_id BIGINT NOT NULL,
+                    creator_id BIGINT NOT NULL,
+                    status TEXT NOT NULL,
+                    current_round INTEGER DEFAULT 1,
+                    bride_id BIGINT,
+                    message_id BIGINT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            
+            # Таблица участников игры "Жених"
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bride_participants (
+                    game_id INTEGER REFERENCES bride_games(game_id) ON DELETE CASCADE,
+                    user_id BIGINT NOT NULL,
+                    number INTEGER,
+                    is_out BOOLEAN DEFAULT FALSE,
+                    is_bride BOOLEAN DEFAULT FALSE,
+                    PRIMARY KEY (game_id, user_id)
+                );
+            """)
+            
+            # Таблица раундов игры "Жених"
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bride_rounds (
+                    round_id SERIAL PRIMARY KEY,
+                    game_id INTEGER REFERENCES bride_games(game_id) ON DELETE CASCADE,
+                    round_number INTEGER NOT NULL,
+                    question TEXT,
+                    voted_out INTEGER
+                );
+            """)
+            
+            # Таблица ответов в игре "Жених"
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bride_answers (
+                    round_id INTEGER REFERENCES bride_rounds(round_id) ON DELETE CASCADE,
+                    user_id BIGINT NOT NULL,
+                    answer TEXT NOT NULL,
+                    PRIMARY KEY (round_id, user_id)
                 );
             """)
             
@@ -243,7 +350,313 @@ class Database:
                 quiz_id
             )
             return {row['user_id']: row['answer_index'] for row in rows}
+    
+    # Методы для работы с историей пользователей
+    async def record_user_join(self, user_id: int):
+        """Запись вступления пользователя"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO user_group_history (user_id, join_time)
+                VALUES ($1, CURRENT_TIMESTAMP)
+            """, user_id)
+    
+    async def record_user_leave(self, user_id: int):
+        """Запись выхода пользователя"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE user_group_history
+                SET leave_time = CURRENT_TIMESTAMP
+                WHERE user_id = $1 AND leave_time IS NULL
+            """, user_id)
+    
+    async def get_user_history(self, user_id: int) -> List[Dict]:
+        """Получение истории пользователя"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT join_time, leave_time
+                FROM user_group_history
+                WHERE user_id = $1
+                ORDER BY join_time
+            """, user_id)
+            return [dict(row) for row in rows]
+    
+    # Методы для работы с игрой "Жених"
+    async def create_bride_game(self, group_id: int, creator_id: int) -> int:
+        """Создание новой игры Жених"""
+        async with self.pool.acquire() as conn:
+            game_id = await conn.fetchval("""
+                INSERT INTO bride_games (group_id, creator_id, status)
+                VALUES ($1, $2, 'waiting')
+                RETURNING game_id
+            """, group_id, creator_id)
+            return game_id
+    
+    async def join_bride_game(self, game_id: int, user_id: int) -> bool:
+        """Присоединение к игре Жених"""
+        async with self.pool.acquire() as conn:
+            try:
+                await conn.execute("""
+                    INSERT INTO bride_participants (game_id, user_id)
+                    VALUES ($1, $2)
+                """, game_id, user_id)
+                return True
+            except:
+                return False
+    
+    async def get_bride_game(self, game_id: int) -> Optional[Dict]:
+        """Получение данных игры Жених"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT * FROM bride_games WHERE game_id = $1
+            """, game_id)
+            return dict(row) if row else None
+    
+    async def get_active_bride_game(self, group_id: int) -> Optional[Dict]:
+        """Получение активной игры Жених в группе"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT * FROM bride_games 
+                WHERE group_id = $1 AND status IN ('waiting', 'started')
+                ORDER BY created_at DESC LIMIT 1
+            """, group_id)
+            return dict(row) if row else None
+    
+    async def get_bride_participants(self, game_id: int) -> List[Dict]:
+        """Получение участников игры Жених"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT * FROM bride_participants 
+                WHERE game_id = $1 AND is_out = FALSE
+                ORDER BY user_id
+            """, game_id)
+            return [dict(row) for row in rows]
+    
+    async def start_bride_game(self, game_id: int, bride_id: int):
+        """Запуск игры Жених"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE bride_games 
+                SET status = 'started', bride_id = $2
+                WHERE game_id = $1
+            """, game_id, bride_id)
+            
+            await conn.execute("""
+                UPDATE bride_participants 
+                SET is_bride = TRUE
+                WHERE game_id = $1 AND user_id = $2
+            """, game_id, bride_id)
+    
+    async def create_bride_round(self, game_id: int, round_number: int, question: str) -> int:
+        """Создание раунда игры Жених"""
+        async with self.pool.acquire() as conn:
+            round_id = await conn.fetchval("""
+                INSERT INTO bride_rounds (game_id, round_number, question)
+                VALUES ($1, $2, $3)
+                RETURNING round_id
+            """, game_id, round_number, question)
+            return round_id
+    
+    async def save_bride_answer(self, round_id: int, user_id: int, answer: str):
+        """Сохранение ответа в игре Жених"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO bride_answers (round_id, user_id, answer)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (round_id, user_id)
+                DO UPDATE SET answer = EXCLUDED.answer
+            """, round_id, user_id, answer)
+    
+    async def get_bride_answers(self, round_id: int) -> List[Dict]:
+        """Получение ответов раунда"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT ba.*, bp.number
+                FROM bride_answers ba
+                JOIN bride_participants bp ON ba.user_id = bp.user_id
+                JOIN bride_rounds br ON ba.round_id = br.round_id
+                WHERE ba.round_id = $1 AND bp.game_id = br.game_id
+            """, round_id)
+            return [dict(row) for row in rows]
+    
+    async def vote_out_participant(self, game_id: int, user_id: int, round_id: int):
+        """Исключение участника из игры"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE bride_participants 
+                SET is_out = TRUE
+                WHERE game_id = $1 AND user_id = $2
+            """, game_id, user_id)
+            
+            await conn.execute("""
+                UPDATE bride_rounds 
+                SET voted_out = $2
+                WHERE round_id = $1
+            """, round_id, user_id)
+    
+    async def finish_bride_game(self, game_id: int):
+        """Завершение игры Жених"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE bride_games 
+                SET status = 'finished'
+                WHERE game_id = $1
+            """, game_id)
+    
+    async def get_current_bride_round(self, game_id: int) -> Optional[Dict]:
+        """Получение текущего раунда игры"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT * FROM bride_rounds 
+                WHERE game_id = $1
+                ORDER BY round_number DESC LIMIT 1
+            """, game_id)
+            return dict(row) if row else None
+    
+    # Методы для работы с историей входов/выходов
+    async def save_join_history(self, user_id: int, joined_at, left_at):
+        """Сохранение истории входов/выходов пользователя"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO user_join_history (user_id, joined_at, left_at)
+                VALUES ($1, $2, $3)
+            """, user_id, joined_at, left_at)
+
+    async def get_user_join_periods(self, user_id: int) -> List[Tuple[str, str]]:
+        """Получение периодов пребывания пользователя в группе"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT joined_at, left_at FROM user_join_history
+                WHERE user_id = $1
+                ORDER BY joined_at ASC
+            """, user_id)
+            return [(r['joined_at'].strftime('%d.%m.%y'), r['left_at'].strftime('%d.%m.%y')) for r in rows if r['left_at']]
+
+    # Методы для работы с ожидающими заявками
+    async def save_pending_application(self, user_id: int, role: str):
+        """Сохранение ожидающей заявки"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO pending_applications (user_id, role)
+                VALUES ($1, $2)
+                ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role, submitted_at = CURRENT_TIMESTAMP
+            """, user_id, role)
+
+    async def delete_old_applications(self):
+        """Удаление старых заявок (старше 5 дней)"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                DELETE FROM pending_applications WHERE submitted_at < NOW() - INTERVAL '5 days'
+            """)
+
+    async def get_application_role(self, user_id: int) -> Optional[str]:
+        """Получение роли из ожидающей заявки"""
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval("SELECT role FROM pending_applications WHERE user_id = $1", user_id)
+
+    async def update_user_role(self, user_id: int, new_role: str):
+        """Обновление роли пользователя"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE user_data SET role = $2, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = $1
+            """, user_id, new_role)
+
+    # Методы для работы с сессиями игры Жених
+    async def create_bride_session(self, creator_id: int) -> int:
+        """Создание новой сессии игры Жених"""
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval("""
+                INSERT INTO bride_game_sessions (creator_id) VALUES ($1) RETURNING session_id
+            """, creator_id)
+
+    async def add_bride_participant(self, session_id: int, user_id: int, number: int, is_bride: bool = False):
+        """Добавление участника в сессию игры Жених"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO bride_game_participants (session_id, user_id, user_number, is_bride)
+                VALUES ($1, $2, $3, $4)
+            """, session_id, user_id, number, is_bride)
+
+    async def get_bride_session_participants(self, session_id: int) -> List[Dict]:
+        """Получение участников сессии игры Жених"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT user_id, user_number, eliminated, is_bride
+                FROM bride_game_participants WHERE session_id = $1
+            """, session_id)
+            return [dict(row) for row in rows]
+
+    async def eliminate_bride_participant(self, session_id: int, user_number: int):
+        """Исключение участника из игры Жених"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE bride_game_participants
+                SET eliminated = TRUE
+                WHERE session_id = $1 AND user_number = $2
+            """, session_id, user_number)
+
+    async def delete_bride_session(self, session_id: int):
+        """Удаление сессии игры Жених"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("DELETE FROM bride_game_participants WHERE session_id = $1", session_id)
+            await conn.execute("DELETE FROM bride_game_sessions WHERE session_id = $1", session_id)
+
+    async def start_bride_session(self, session_id: int):
+        """Запуск сессии игры Жених"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE bride_game_sessions SET started = TRUE WHERE session_id = $1", session_id)
+
+    async def get_active_bride_session(self) -> Optional[Dict]:
+        """Получение активной сессии игры Жених"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM bride_game_sessions WHERE started = FALSE LIMIT 1")
+            return dict(row) if row else None
+
+    # Методы для работы с заявками
+    async def save_application(self, user_id: int, role: str):
+        """Сохранение заявки пользователя"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO active_applications (user_id, role)
+                VALUES ($1, $2)
+                ON CONFLICT (user_id) 
+                DO UPDATE SET role = EXCLUDED.role, 
+                             created_at = CURRENT_TIMESTAMP,
+                             expires_at = CURRENT_TIMESTAMP + INTERVAL '5 days'
+            """, user_id, role)
+    
+    async def get_application(self, user_id: int) -> Optional[Dict]:
+        """Получение заявки пользователя"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT * FROM active_applications 
+                WHERE user_id = $1 AND expires_at > CURRENT_TIMESTAMP
+            """, user_id)
+            return dict(row) if row else None
+    
+    async def update_application_role(self, user_id: int, new_role: str):
+        """Обновление роли в заявке"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE active_applications 
+                SET role = $2
+                WHERE user_id = $1
+            """, user_id, new_role)
+    
+    async def delete_application(self, user_id: int):
+        """Удаление заявки"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                DELETE FROM active_applications WHERE user_id = $1
+            """, user_id)
+    
+    async def cleanup_expired_applications(self):
+        """Очистка истекших заявок"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                DELETE FROM active_applications 
+                WHERE expires_at <= CURRENT_TIMESTAMP
+            """)
 
 # Глобальный экземпляр базы данных
 db = Database()
-
