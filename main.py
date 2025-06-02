@@ -250,16 +250,19 @@ async def age_verify_text_handler(message: types.Message, state: FSMContext):
         await bot.send_message(admin_id, admin_message)
 
     # Проверяем историю пользователя
-    history = await db.get_user_history(user_id)
-    if history:
-        history_message = f"<b>Пользователь {message.from_user.full_name} уже был в чате</b>\n\n"
-        for entry in history:
-            join_date = entry['join_time'].strftime('%d.%m.%y')
-            leave_date = entry['leave_time'].strftime('%d.%m.%y') if entry['leave_time'] else "настоящее время"
-            history_message += f"{join_date} - {leave_date}\n"
+    try:
+        history = await db.get_user_history(user_id)
+        if history:
+            history_message = f"<b>Пользователь {message.from_user.full_name} уже был в чате</b>\n\n"
+            for entry in history:
+                join_date = entry['join_time'].strftime('%d.%m.%y') if entry['join_time'] else "неизвестно"
+                leave_date = entry['leave_time'].strftime('%d.%m.%y') if entry['leave_time'] else "настоящее время"
+                history_message += f"{join_date} - {leave_date}\n"
 
-        for admin_id in ADMIN_IDS:
-            await bot.send_message(admin_id, history_message)
+            for admin_id in ADMIN_IDS:
+                await bot.send_message(admin_id, history_message)
+    except Exception as e:
+        logging.error(f"Ошибка при получении истории пользователя {user_id}: {e}")
 
     await state.clear()
 
@@ -293,12 +296,15 @@ async def age_verify_any_handler(message: types.Message, state: FSMContext):
         await bot.forward_message(admin_id, message.chat.id, message.message_id)
 
     # Проверка истории
-    join_periods = await db.get_user_join_periods(user_id)
-    if join_periods:
-        history_message = f"<i>Пользователь {message.from_user.full_name} уже был в чате</i>\n"
-        history_message += "\n".join([f"{start} - {end}" for start, end in join_periods])
-        for admin_id in ADMIN_IDS:
-            await bot.send_message(admin_id, history_message)
+    try:
+        join_periods = await db.get_user_join_periods(user_id)
+        if join_periods:
+            history_message = f"<i>Пользователь {message.from_user.full_name} уже был в чате</i>\n"
+            history_message += "\n".join([f"{start} - {end}" for start, end in join_periods])
+            for admin_id in ADMIN_IDS:
+                await bot.send_message(admin_id, history_message)
+    except Exception as e:
+        logging.error(f"Ошибка при получении периодов пребывания пользователя {user_id}: {e}")
 
     await state.clear()
 
@@ -1000,42 +1006,71 @@ async def end_quiz_command(message: types.Message):
         logging.error(f"Ошибка при завершении викторины: {e}")
         await message.reply("Произошла ошибка при завершении викторины.")
 
-@dp.message(lambda m: m.chat.type == ChatType.PRIVATE and m.from_user.id in ADMIN_IDS and m.reply_to_message)
+@dp.message(lambda m: m.chat.type == ChatType.PRIVATE and m.from_user.id in ADMIN_IDS and m.reply_to_message and m.text)
 async def admin_reply_handler(message: types.Message):
+    if not message.text:
+        return
     text = message.text.strip()
     reply = message.reply_to_message
-    lines = reply.text.splitlines()
+    reply_text = reply.text or reply.caption or ""
     user_id = None
 
-    for line in lines:
+    # Парсим ID пользователя
+    for line in reply_text.splitlines():
         if line.startswith("#️⃣ ID:"):
             try:
                 user_id = int(line.split("<code>")[1].split("</code>")[0])
+                break
             except:
                 pass
-            break
+
+    # Альтернативный парсинг если ID не найден
+    if not user_id and "tg://user?id=" in reply_text:
+        try:
+            user_id = int(reply_text.split("tg://user?id=")[1].split("'")[0])
+        except:
+            pass
 
     if not user_id:
+        await message.reply("Не удалось определить ID пользователя.")
         return
 
     # Команда смены роли
     if text.lower().startswith("роль "):
         new_role = text[5:].strip()
-        await db.update_user_role(user_id, new_role)
+        if not new_role:
+            await message.reply("Укажите новую роль после команды 'роль'")
+            return
+            
+        try:
+            # Обновляем роль в заявке и данных пользователя
+            await db.save_user_data(user_id, role=new_role)
+            
+            user = await bot.get_chat(user_id)
+            user_mention = f"<a href='tg://user?id={user.id}'>{user.full_name}</a>"
 
-        user = await bot.get_chat(user_id)
-        user_mention = f"<a href='tg://user?id={user.id}'>{user.full_name}</a>"
-
-        notify = f"Роль {user_mention} изменена на <b>{new_role}</b>"
-        for admin_id in ADMIN_IDS:
-            await bot.send_message(admin_id, notify)
-        return  # ничего не отправлять пользователю
+            notify = f"Роль {user_mention} изменена на <b>{new_role}</b>"
+            for admin_id in ADMIN_IDS:
+                await bot.send_message(admin_id, notify, parse_mode=ParseMode.HTML)
+            
+            await message.reply(f"Роль пользователя изменена на: {new_role}")
+            return
+        except Exception as e:
+            await message.reply(f"Ошибка при изменении роли: {str(e)}")
+            return
 
     # Иначе — обычный ответ на заявку
-    await bot.send_message(user_id, f"<b>Ответ администратора:</b>\n\n{message.text}", parse_mode=ParseMode.HTML)
+    try:
+        await bot.send_message(user_id, f"<b>Ответ администратора:</b>\n\n{message.text}", parse_mode=ParseMode.HTML)
+        await message.reply("Ответ отправлен пользователю.")
+    except Exception as e:
+        error_msg = f"Не удалось отправить ответ: {str(e)}"
+        if "user is deactivated" in str(e) or "bot was blocked by the user" in str(e):
+            error_msg = "Пользователь заблокировал бота или удалил аккаунт"
+        await message.reply(error_msg)
 
 
-@dp.message(lambda m: m.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP} and m.text.lower() == "начать жених" and m.from_user.id in ADMIN_IDS)
+@dp.message(lambda m: m.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP} and m.text and m.text.lower() == "начать жених" and m.from_user.id in ADMIN_IDS)
 async def start_bride_game_announcement(message: types.Message, state: FSMContext):
     session = await db.get_active_bride_session()
     if session:
@@ -1349,106 +1384,8 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                 await message.reply("Ваш ответ отправлен администраторам.")
                 return
 
-        # Проверяем, что это ответ админа на заявку
-        if not (message.chat.type == ChatType.PRIVATE and message.from_user.id
-                in ADMIN_IDS and message.reply_to_message):
-            return
-
-        reply_text = message.reply_to_message.text or message.reply_to_message.caption or ""
-
-        # Проверяем, что это одна из заявок, на которые можно отвечать
-        if not any(keyword in reply_text for keyword in [
-            "Заявка на вступление!", 
-            "Заявка на рест",
-            "Не может влиться!",
-            "ответил:"
-        ]):
-            return
-
-        # Парсим ID пользователя из заявки на вступление
-        user_id = None
-        for line in reply_text.split('\n'):
-            if line.startswith("#️⃣ ID:"):
-                user_id_str = line.split(":")[1].strip().replace(
-                    "<code>", "").replace("</code>", "")
-                if user_id_str.isdigit():
-                    user_id = int(user_id_str)
-                break
-
-        # Альтернативный парсинг если ID не найден
-        if not user_id and "tg://user?id=" in reply_text:
-            user_id = int(reply_text.split("tg://user?id=")[1].split("'")[0])
-
-        if not user_id:
-            await message.reply("Не удалось определить ID пользователя.")
-            return
-
-        # Проверяем команду изменения роли
-        if message.text.lower().startswith("роль "):
-            new_role = message.text[5:].strip()
-            if new_role:
-                try:
-                    target_user = await bot.get_chat(user_id)
-
-                    # Обновляем роль в заявке
-                    await db.update_application_role(user_id, new_role)
-
-                    # Обновляем роль в данных пользователя
-                    await db.save_user_data(user_id, role=new_role)
-
-                    # Уведомляем админов об изменении роли
-                    role_change_message = f"Роль {target_user.full_name} изменена на <b>{new_role}</b>"
-
-                    for admin_id in ADMIN_IDS:
-                        try:
-                            await bot.send_message(admin_id, role_change_message, parse_mode=ParseMode.HTML)
-                        except Exception as e:
-                            logging.error(f"Ошибка отправки уведомления об изменении роли админу {admin_id}: {e}")
-
-                    await message.reply(f"Роль пользователя изменена на: {new_role}")
-                    return
-                except Exception as e:
-                    await message.reply(f"Ошибка при изменении роли: {str(e)}")
-                    return
-            else:
-                await message.reply("Укажите новую роль после команды 'роль'")
-                return
-
-        # Получаем информацию об админе и пользователе
-        try:
-            admin = message.from_user
-            target_user = await bot.get_chat(user_id)
-
-            # Отправляем ответ пользователю
-            await bot.send_message(
-                user_id,
-                f"<b>Ответ администратора:</b>\n\n{message.text}",
-                parse_mode=ParseMode.HTML)
-
-            # Формируем текст уведомления для других админов в правильном формате
-
-            notification_text = f"{admin.full_name} отправил ответ {target_user.full_name}:\n\n<code>{message.text}</code>"
-
-            # Отправляем уведомление другим админам
-            for admin_id in ADMIN_IDS:
-                if admin_id != message.from_user.id:
-                    try:
-                        await bot.send_message(admin_id,
-                                               notification_text,
-                                               parse_mode=ParseMode.HTML)
-                    except Exception as e:
-                        logging.error(
-                            f"Ошибка отправки уведомления админу {admin_id}: {e}"
-                        )
-
-            await message.reply(f"Ответ успешно отправлен пользователю.")
-
-        except Exception as e:
-            error_msg = f"Не удалось отправить ответ: {str(e)}"
-            if "user is deactivated" in str(
-                    e) or "bot was blocked by the user" in str(e):
-                error_msg = "Пользователь заблокировал бота или удалил аккаунт"
-            await message.reply(error_msg)
+        # Логика обработки обычных сообщений (остается без изменений для других случаев)
+        pass
 
     except Exception as e:
         logging.error(f"Ошибка в обработчике ответов: {str(e)}",
