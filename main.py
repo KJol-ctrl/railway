@@ -1112,7 +1112,10 @@ async def admin_reply_handler(message: types.Message):
         await message.reply(error_msg)
 
 
-@dp.message(lambda m: m.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP} and m.text and m.text.lower() == "начать жених" and m.from_user.id in ADMIN_IDS)
+# Глобальное хранилище для отслеживания сообщений набора
+bride_game_messages = {}
+
+@dp.message(lambda m: m.text and m.text.lower() == "начать жених" and m.from_user.id in ADMIN_IDS)
 async def start_bride_game_announcement(message: types.Message, state: FSMContext):
     session = await db.get_active_bride_session()
     if session:
@@ -1125,14 +1128,124 @@ async def start_bride_game_announcement(message: types.Message, state: FSMContex
         [InlineKeyboardButton(text="Присоединиться", callback_data=f"bride_join_{session_id}")]
     ])
 
-    msg = await message.answer(
+    # Отправляем сообщение в группу
+    if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        chat_id = message.chat.id
+    else:
+        chat_id = GROUP_ID
+
+    msg = await bot.send_message(
+        chat_id,
         f"Идёт набор в игру \"Жених\"\nУчастников: 1",
         reply_markup=keyboard
     )
 
-    # сохраняем сообщение сессии в состояние
-    await state.set_data({"bride_session_id": session_id, "msg_id": msg.message_id, "participants": [message.from_user.id]})
+    # Сохраняем информацию о сообщении глобально
+    bride_game_messages[session_id] = {
+        "chat_id": chat_id,
+        "message_id": msg.message_id,
+        "participants": [message.from_user.id]
+    }
+
     await db.add_bride_participant(session_id, message.from_user.id, 0)
+
+    if message.chat.type == ChatType.PRIVATE:
+        await message.reply("Набор в игру начат в группе.")
+
+
+@dp.message(lambda m: m.text and m.text.lower() == "запустить жених" and m.from_user.id in ADMIN_IDS)
+async def launch_bride_game(message: types.Message, state: FSMContext):
+    session = await db.get_active_bride_session()
+    if not session:
+        await message.reply("Нет активной сессии для запуска.")
+        return
+    
+    participants = await db.get_bride_session_participants(session['session_id'])
+    if len(participants) < 3:
+        await message.reply("Для игры нужно минимум 3 участника.")
+        return
+    
+    # Выбираем случайного жениха
+    bride = random.choice(participants)
+    await db.add_bride_participant(session['session_id'], bride['user_id'], bride['user_number'], True)
+    
+    # Создаем игру в новой системе
+    game_id = await db.create_bride_game(GROUP_ID, session['creator_id'])
+    
+    # Переносим участников
+    for i, participant in enumerate(participants, 1):
+        await db.join_bride_game(game_id, participant['user_id'])
+    
+    await db.start_bride_game(game_id, bride['user_id'])
+    await db.start_bride_session(session['session_id'])
+    
+    # Уведомляем жениха
+    await bot.send_message(bride['user_id'], "Вы выбраны женихом! Задайте первый вопрос участникам.")
+    
+    # Объявляем в группе или отвечаем в ЛС
+    if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        await message.answer("Игра началась! Жених выбран и получил инструкции.")
+    else:
+        await bot.send_message(GROUP_ID, "Игра началась! Жених выбран и получил инструкции.")
+        await message.reply("Игра началась! Жених выбран и получил инструкции.")
+    
+    # Очищаем глобальное хранилище
+    if session['session_id'] in bride_game_messages:
+        del bride_game_messages[session['session_id']]
+    
+    # Очищаем состояние
+    await state.clear()
+
+
+@dp.message(lambda m: m.text and m.text.lower() == "завершить жених" and m.from_user.id in ADMIN_IDS)
+async def finish_bride_game(message: types.Message, state: FSMContext):
+    # Проверяем активную сессию набора
+    session = await db.get_active_bride_session()
+    if session:
+        await db.delete_bride_session(session['session_id'])
+        
+        # Очищаем глобальное хранилище
+        if session['session_id'] in bride_game_messages:
+            del bride_game_messages[session['session_id']]
+        
+        if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+            await message.answer("Набор в игру завершен.")
+        else:
+            await bot.send_message(GROUP_ID, "Набор в игру завершен.")
+            await message.reply("Набор в игру завершен.")
+        
+        await state.clear()
+        return
+    
+    # Проверяем активную игру
+    active_game = await db.get_active_bride_game(GROUP_ID)
+    if not active_game:
+        await message.reply("Нет активной игры для завершения.")
+        return
+    
+    if active_game['status'] not in ['waiting', 'started']:
+        await message.reply("Игра уже завершена.")
+        return
+    
+    # Завершаем игру
+    await db.finish_bride_game(active_game['game_id'])
+    
+    if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        await message.answer("Игра 'Жених' принудительно завершена администратором.")
+    else:
+        await bot.send_message(GROUP_ID, "Игра 'Жених' принудительно завершена администратором.")
+        await message.reply("Игра 'Жених' принудительно завершена администратором.")
+    
+    # Уведомляем всех участников
+    participants = await db.get_bride_participants(active_game['game_id'])
+    for participant in participants:
+        try:
+            await bot.send_message(participant['user_id'], "Игра была завершена администратором.")
+        except Exception as e:
+            logging.error(f"Ошибка уведомления участника {participant['user_id']}: {e}")
+    
+    # Очищаем состояние
+    await state.clear()
 
 
 @dp.callback_query(F.data.startswith("bride_join_"))
@@ -1145,8 +1258,12 @@ async def bride_join_callback(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Игра уже началась или завершена.", show_alert=True)
         return
 
-    data = await state.get_data()
-    participants = data.get("participants", [])
+    # Получаем текущих участников из глобального хранилища
+    if session_id not in bride_game_messages:
+        await callback.answer("Ошибка: сессия не найдена.", show_alert=True)
+        return
+
+    participants = bride_game_messages[session_id]["participants"]
 
     if user_id in participants:
         await callback.answer("Вы уже присоединились.", show_alert=True)
@@ -1155,20 +1272,22 @@ async def bride_join_callback(callback: CallbackQuery, state: FSMContext):
     number = len(participants)
     await db.add_bride_participant(session_id, user_id, number)
     participants.append(user_id)
-    await state.update_data(participants=participants)
+
+    # Обновляем глобальное хранилище
+    bride_game_messages[session_id]["participants"] = participants
 
     await bot.send_message(user_id, "Вы присоединились к игре.")
 
     # Обновляем сообщение в группе
     try:
         await bot.edit_message_text(
-            chat_id=callback.message.chat.id,
-            message_id=callback.message.message_id,
+            chat_id=bride_game_messages[session_id]["chat_id"],
+            message_id=bride_game_messages[session_id]["message_id"],
             text=f"Идёт набор в игру \"Жених\"\nУчастников: {len(participants)}",
             reply_markup=callback.message.reply_markup
         )
-    except:
-        pass
+    except Exception as e:
+        logging.error(f"Ошибка обновления сообщения: {e}")
 
     await callback.answer()
 
