@@ -529,7 +529,13 @@ class Database:
                 WHERE user_id = $1
                 ORDER BY joined_at ASC
             """, user_id)
-            return [(r['joined_at'].strftime('%d.%m.%y'), r['left_at'].strftime('%d.%m.%y')) for r in rows if r['left_at']]
+            result = []
+            for r in rows:
+                if r['joined_at'] and r['left_at']:
+                    start = r['joined_at'].strftime('%d.%m.%y')
+                    end = r['left_at'].strftime('%d.%m.%y')
+                    result.append((start, end))
+            return result
 
     # Методы для работы с ожидающими заявками
     async def save_pending_application(self, user_id: int, role: str):
