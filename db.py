@@ -7,7 +7,7 @@ from typing import Dict, Optional, List, Tuple
 class Database:
     def __init__(self):
         self.pool = None
-    
+
     async def connect(self):
         """Подключение к базе данных"""
         try:
@@ -15,15 +15,41 @@ class Database:
             if not database_url:
                 logging.error("DATABASE_URL не найден в переменных окружения")
                 return False
-            
-            self.pool = await asyncpg.create_pool(database_url, min_size=1, max_size=10)
+
+            # Добавляем таймаут для подключения
+            self.pool = await asyncpg.create_pool(
+                database_url, 
+                min_size=1, 
+                max_size=10,
+                command_timeout=30,
+                server_settings={
+                    'application_name': 'telegram_bot',
+                }
+            )
+
+            # Проверяем подключение
+            async with self.pool.acquire() as conn:
+                await conn.fetchval('SELECT 1')
+
             await self.create_tables()
             logging.info("Успешное подключение к базе данных")
             return True
+        except asyncpg.exceptions.InvalidCatalogNameError:
+            logging.error("База данных не существует")
+            return False
+        except asyncpg.exceptions.InvalidPasswordError:
+            logging.error("Неверный пароль для базы данных")
+            return False
         except Exception as e:
             logging.error(f"Ошибка подключения к базе данных: {e}")
+            if self.pool:
+                try:
+                    await self.pool.close()
+                    self.pool = None
+                except:
+                    pass
             return False
-    
+
     async def create_tables(self):
         """Создание необходимых таблиц"""
         async with self.pool.acquire() as conn:
@@ -35,7 +61,7 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            
+
             # Таблица для данных пользователей (роли, титулы)
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS user_data (
@@ -46,7 +72,7 @@ class Database:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            
+
             # Таблица для активных викторин
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS active_quizzes (
@@ -60,7 +86,7 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            
+
             # Таблица для ответов участников викторин
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS quiz_participants (
@@ -71,7 +97,7 @@ class Database:
                     PRIMARY KEY (quiz_id, user_id)
                 );
             """)
-            
+
             # Таблица для истории пребывания в группе
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS user_group_history (
@@ -81,7 +107,7 @@ class Database:
                     PRIMARY KEY (user_id, join_time)
                 );
             """)
-            
+
             # Таблица для активных заявок
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS active_applications (
@@ -91,7 +117,7 @@ class Database:
                     expires_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP + INTERVAL '5 days')
                 );
             """)
-            
+
             # Таблица для истории входов/выходов пользователей
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS user_join_history (
@@ -100,7 +126,7 @@ class Database:
                     left_at TIMESTAMP
                 );
             """)
-            
+
             # Таблица для ожидающих заявок
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS pending_applications (
@@ -109,7 +135,7 @@ class Database:
                     submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            
+
             # Таблица для сессий игры Жених
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bride_game_sessions (
@@ -119,7 +145,7 @@ class Database:
                     started BOOLEAN DEFAULT FALSE
                 );
             """)
-            
+
             # Таблица для участников сессий игры Жених
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bride_game_participants (
@@ -131,7 +157,7 @@ class Database:
                     PRIMARY KEY (session_id, user_id)
                 );
             """)
-            
+
             # Таблица для игр "Жених"
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bride_games (
@@ -145,7 +171,7 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            
+
             # Таблица участников игры "Жених"
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bride_participants (
@@ -157,7 +183,7 @@ class Database:
                     PRIMARY KEY (game_id, user_id)
                 );
             """)
-            
+
             # Таблица раундов игры "Жених"
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bride_rounds (
@@ -168,7 +194,7 @@ class Database:
                     voted_out INTEGER
                 );
             """)
-            
+
             # Таблица ответов в игре "Жених"
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bride_answers (
@@ -178,14 +204,14 @@ class Database:
                     PRIMARY KEY (round_id, user_id)
                 );
             """)
-            
+
             logging.info("Таблицы созданы успешно")
-    
+
     async def close(self):
         """Закрытие соединения с базой данных"""
         if self.pool:
             await self.pool.close()
-    
+
     # Методы для работы с эмодзи
     async def save_emoji(self, user_id: int, emoji: str):
         """Сохранение эмодзи пользователя"""
@@ -196,7 +222,7 @@ class Database:
                 ON CONFLICT (user_id) 
                 DO UPDATE SET emoji = EXCLUDED.emoji;
             """, user_id, emoji)
-    
+
     async def get_emoji(self, user_id: int) -> Optional[str]:
         """Получение эмодзи пользователя"""
         async with self.pool.acquire() as conn:
@@ -205,24 +231,24 @@ class Database:
                 user_id
             )
             return result
-    
+
     async def get_all_emojis(self) -> Dict[int, str]:
         """Получение всех эмодзи"""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("SELECT user_id, emoji FROM user_emojis")
             return {row['user_id']: row['emoji'] for row in rows}
-    
+
     async def remove_emoji(self, user_id: int):
         """Удаление эмодзи пользователя"""
         async with self.pool.acquire() as conn:
             await conn.execute("DELETE FROM user_emojis WHERE user_id = $1", user_id)
-    
+
     async def get_used_emojis(self) -> List[str]:
         """Получение списка уже используемых эмодзи"""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("SELECT emoji FROM user_emojis")
             return [row['emoji'] for row in rows]
-    
+
     # Методы для работы с данными пользователей
     async def save_user_data(self, user_id: int, role: str = None, custom_title: str = None):
         """Сохранение данных пользователя"""
@@ -236,7 +262,7 @@ class Database:
                     custom_title = COALESCE(EXCLUDED.custom_title, user_data.custom_title),
                     updated_at = CURRENT_TIMESTAMP;
             """, user_id, role, custom_title)
-    
+
     async def get_user_data(self, user_id: int) -> Dict:
         """Получение данных пользователя"""
         async with self.pool.acquire() as conn:
@@ -247,7 +273,7 @@ class Database:
             if row:
                 return {'role': row['role'], 'custom_title': row['custom_title']}
             return {}
-    
+
     async def get_all_user_data(self) -> Dict[int, Dict]:
         """Получение всех данных пользователей"""
         async with self.pool.acquire() as conn:
@@ -259,12 +285,12 @@ class Database:
                 } 
                 for row in rows
             }
-    
+
     async def remove_user_data(self, user_id: int):
         """Удаление данных пользователя"""
         async with self.pool.acquire() as conn:
             await conn.execute("DELETE FROM user_data WHERE user_id = $1", user_id)
-    
+
     # Методы для работы с викторинами
     async def save_quiz(self, quiz_id: int, chat_id: int, question: str, answers: List[str], 
                        correct_indices: List[int], creator_id: int):
@@ -280,7 +306,7 @@ class Database:
                     correct_indices = EXCLUDED.correct_indices,
                     active = TRUE;
             """, quiz_id, chat_id, question, json.dumps(answers), json.dumps(correct_indices), creator_id)
-    
+
     async def get_quiz(self, quiz_id: int) -> Optional[Dict]:
         """Получение данных викторины"""
         async with self.pool.acquire() as conn:
@@ -299,7 +325,7 @@ class Database:
                     'active': row['active']
                 }
             return None
-    
+
     async def get_all_active_quizzes(self) -> Dict[int, Dict]:
         """Получение всех активных викторин"""
         async with self.pool.acquire() as conn:
@@ -316,7 +342,7 @@ class Database:
                 }
                 for row in rows
             }
-    
+
     async def deactivate_quiz(self, quiz_id: int):
         """Деактивация викторины"""
         async with self.pool.acquire() as conn:
@@ -324,13 +350,13 @@ class Database:
                 "UPDATE active_quizzes SET active = FALSE WHERE quiz_id = $1", 
                 quiz_id
             )
-    
+
     async def delete_quiz(self, quiz_id: int):
         """Полное удаление викторины"""
         async with self.pool.acquire() as conn:
             await conn.execute("DELETE FROM quiz_participants WHERE quiz_id = $1", quiz_id)
             await conn.execute("DELETE FROM active_quizzes WHERE quiz_id = $1", quiz_id)
-    
+
     # Методы для работы с участниками викторин
     async def save_quiz_answer(self, quiz_id: int, user_id: int, answer_index: int):
         """Сохранение ответа участника викторины"""
@@ -341,7 +367,7 @@ class Database:
                 ON CONFLICT (quiz_id, user_id) 
                 DO UPDATE SET answer_index = EXCLUDED.answer_index;
             """, quiz_id, user_id, answer_index)
-    
+
     async def get_quiz_participants(self, quiz_id: int) -> Dict[int, int]:
         """Получение всех участников викторины и их ответов"""
         async with self.pool.acquire() as conn:
@@ -350,7 +376,7 @@ class Database:
                 quiz_id
             )
             return {row['user_id']: row['answer_index'] for row in rows}
-    
+
     # Методы для работы с историей пользователей
     async def record_user_join(self, user_id: int):
         """Запись вступления пользователя"""
@@ -359,7 +385,7 @@ class Database:
                 INSERT INTO user_group_history (user_id, join_time)
                 VALUES ($1, CURRENT_TIMESTAMP)
             """, user_id)
-    
+
     async def record_user_leave(self, user_id: int):
         """Запись выхода пользователя"""
         async with self.pool.acquire() as conn:
@@ -368,7 +394,7 @@ class Database:
                 SET leave_time = CURRENT_TIMESTAMP
                 WHERE user_id = $1 AND leave_time IS NULL
             """, user_id)
-    
+
     async def get_user_history(self, user_id: int) -> List[Dict]:
         """Получение истории пользователя"""
         async with self.pool.acquire() as conn:
@@ -379,7 +405,7 @@ class Database:
                 ORDER BY join_time
             """, user_id)
             return [dict(row) for row in rows]
-    
+
     # Методы для работы с игрой "Жених"
     async def create_bride_game(self, group_id: int, creator_id: int) -> int:
         """Создание новой игры Жених"""
@@ -390,7 +416,7 @@ class Database:
                 RETURNING game_id
             """, group_id, creator_id)
             return game_id
-    
+
     async def join_bride_game(self, game_id: int, user_id: int) -> bool:
         """Присоединение к игре Жених"""
         async with self.pool.acquire() as conn:
@@ -402,7 +428,7 @@ class Database:
                 return True
             except:
                 return False
-    
+
     async def get_bride_game(self, game_id: int) -> Optional[Dict]:
         """Получение данных игры Жених"""
         async with self.pool.acquire() as conn:
@@ -410,9 +436,12 @@ class Database:
                 SELECT * FROM bride_games WHERE game_id = $1
             """, game_id)
             return dict(row) if row else None
-    
+
     async def get_active_bride_game(self, group_id: int) -> Optional[Dict]:
         """Получение активной игры Жених в группе"""
+        if not self.pool:
+            logging.error("Нет подключения к базе данных")
+            return None
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow("""
                 SELECT * FROM bride_games 
@@ -420,7 +449,7 @@ class Database:
                 ORDER BY created_at DESC LIMIT 1
             """, group_id)
             return dict(row) if row else None
-    
+
     async def get_bride_participants(self, game_id: int) -> List[Dict]:
         """Получение участников игры Жених"""
         async with self.pool.acquire() as conn:
@@ -430,7 +459,7 @@ class Database:
                 ORDER BY user_id
             """, game_id)
             return [dict(row) for row in rows]
-    
+
     async def start_bride_game(self, game_id: int, bride_id: int):
         """Запуск игры Жених"""
         async with self.pool.acquire() as conn:
@@ -439,13 +468,13 @@ class Database:
                 SET status = 'started', bride_id = $2
                 WHERE game_id = $1
             """, game_id, bride_id)
-            
+
             await conn.execute("""
                 UPDATE bride_participants 
                 SET is_bride = TRUE
                 WHERE game_id = $1 AND user_id = $2
             """, game_id, bride_id)
-    
+
     async def create_bride_round(self, game_id: int, round_number: int, question: str) -> int:
         """Создание раунда игры Жених"""
         async with self.pool.acquire() as conn:
@@ -455,7 +484,7 @@ class Database:
                 RETURNING round_id
             """, game_id, round_number, question)
             return round_id
-    
+
     async def save_bride_answer(self, round_id: int, user_id: int, answer: str):
         """Сохранение ответа в игре Жених"""
         async with self.pool.acquire() as conn:
@@ -465,7 +494,7 @@ class Database:
                 ON CONFLICT (round_id, user_id)
                 DO UPDATE SET answer = EXCLUDED.answer
             """, round_id, user_id, answer)
-    
+
     async def get_bride_answers(self, round_id: int) -> List[Dict]:
         """Получение ответов раунда"""
         async with self.pool.acquire() as conn:
@@ -477,7 +506,7 @@ class Database:
                 WHERE ba.round_id = $1 AND bp.game_id = br.game_id
             """, round_id)
             return [dict(row) for row in rows]
-    
+
     async def vote_out_participant(self, game_id: int, user_id: int, round_id: int):
         """Исключение участника из игры"""
         async with self.pool.acquire() as conn:
@@ -486,13 +515,13 @@ class Database:
                 SET is_out = TRUE
                 WHERE game_id = $1 AND user_id = $2
             """, game_id, user_id)
-            
+
             await conn.execute("""
                 UPDATE bride_rounds 
                 SET voted_out = $2
                 WHERE round_id = $1
             """, round_id, user_id)
-    
+
     async def finish_bride_game(self, game_id: int):
         """Завершение игры Жених"""
         async with self.pool.acquire() as conn:
@@ -501,7 +530,7 @@ class Database:
                 SET status = 'finished'
                 WHERE game_id = $1
             """, game_id)
-    
+
     async def get_current_bride_round(self, game_id: int) -> Optional[Dict]:
         """Получение текущего раунда игры"""
         async with self.pool.acquire() as conn:
@@ -511,7 +540,7 @@ class Database:
                 ORDER BY round_number DESC LIMIT 1
             """, game_id)
             return dict(row) if row else None
-    
+
     # Методы для работы с историей входов/выходов
     async def save_join_history(self, user_id: int, joined_at, left_at):
         """Сохранение истории входов/выходов пользователя"""
@@ -608,9 +637,33 @@ class Database:
             await conn.execute("DELETE FROM bride_game_sessions WHERE session_id = $1", session_id)
 
     async def start_bride_session(self, session_id: int):
-        """Запуск сессии игры Жених"""
-        async with self.pool.acquire() as conn:
-            await conn.execute("UPDATE bride_game_sessions SET started = TRUE WHERE session_id = $1", session_id)
+        """Запускает сессию игры жених"""
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute("""
+                    UPDATE bride_sessions 
+                    SET status = 'started'
+                    WHERE session_id = $1
+                """, session_id)
+                logging.info(f"Сессия {session_id} запущена")
+        except Exception as e:
+            logging.error(f"Ошибка при запуске сессии {session_id}: {e}")
+            raise
+
+    async def get_bride_session_participants(self, session_id: int):
+        """Получает участников сессии игры жених"""
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT user_id, user_number, is_bride, eliminated
+                    FROM bride_participants 
+                    WHERE session_id = $1
+                    ORDER BY user_number
+                """, session_id)
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logging.error(f"Ошибка получения участников сессии {session_id}: {e}")
+            return []
 
     async def get_active_bride_session(self) -> Optional[Dict]:
         """Получение активной сессии игры Жених"""
@@ -630,7 +683,7 @@ class Database:
                              created_at = CURRENT_TIMESTAMP,
                              expires_at = CURRENT_TIMESTAMP + INTERVAL '5 days'
             """, user_id, role)
-    
+
     async def get_application(self, user_id: int) -> Optional[Dict]:
         """Получение заявки пользователя"""
         async with self.pool.acquire() as conn:
@@ -639,7 +692,7 @@ class Database:
                 WHERE user_id = $1 AND expires_at > CURRENT_TIMESTAMP
             """, user_id)
             return dict(row) if row else None
-    
+
     async def update_application_role(self, user_id: int, new_role: str):
         """Обновление роли в заявке"""
         async with self.pool.acquire() as conn:
@@ -648,14 +701,14 @@ class Database:
                 SET role = $2
                 WHERE user_id = $1
             """, user_id, new_role)
-    
+
     async def delete_application(self, user_id: int):
         """Удаление заявки"""
         async with self.pool.acquire() as conn:
             await conn.execute("""
                 DELETE FROM active_applications WHERE user_id = $1
             """, user_id)
-    
+
     async def cleanup_expired_applications(self):
         """Очистка истекших заявок"""
         async with self.pool.acquire() as conn:
@@ -663,11 +716,11 @@ class Database:
                 DELETE FROM active_applications 
                 WHERE expires_at <= CURRENT_TIMESTAMP
             """)
-    
+
     async def save_application(self, user_id: int, role: str):
         """Сохранение заявки пользователя (алиас для save_application)"""
         await self.save_application_internal(user_id, role)
-    
+
     async def save_application_internal(self, user_id: int, role: str):
         """Внутренний метод сохранения заявки"""
         async with self.pool.acquire() as conn:
