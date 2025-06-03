@@ -249,21 +249,6 @@ async def age_verify_text_handler(message: types.Message, state: FSMContext):
     for admin_id in ADMIN_IDS:
         await bot.send_message(admin_id, admin_message)
 
-    # Проверяем историю пользователя
-    try:
-        history = await db.get_user_history(user_id)
-        if history:
-            history_message = f"<b>Пользователь {message.from_user.full_name} уже был в чате</b>\n\n"
-            for entry in history:
-                join_date = entry['join_time'].strftime('%d.%m.%y') if entry['join_time'] else "неизвестно"
-                leave_date = entry['leave_time'].strftime('%d.%m.%y') if entry['leave_time'] else "настоящее время"
-                history_message += f"{join_date} - {leave_date}\n"
-
-            for admin_id in ADMIN_IDS:
-                await bot.send_message(admin_id, history_message)
-    except Exception as e:
-        logging.error(f"Ошибка при получении истории пользователя {user_id}: {e}")
-
     await state.clear()
 
 
@@ -294,17 +279,6 @@ async def age_verify_any_handler(message: types.Message, state: FSMContext):
     for admin_id in ADMIN_IDS:
         await bot.send_message(admin_id, admin_message)
         await bot.forward_message(admin_id, message.chat.id, message.message_id)
-
-    # Проверка истории
-    try:
-        join_periods = await db.get_user_join_periods(user_id)
-        if join_periods:
-            history_message = f"<i>Пользователь {message.from_user.full_name} уже был в чате</i>\n"
-            history_message += "\n".join([f"{start} - {end}" for start, end in join_periods])
-            for admin_id in ADMIN_IDS:
-                await bot.send_message(admin_id, history_message)
-    except Exception as e:
-        logging.error(f"Ошибка при получении периодов пребывания пользователя {user_id}: {e}")
 
     await state.clear()
 
@@ -625,6 +599,9 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
                 await bot.send_message(
                     admin_id, f"Освободилась роль: <b>{custom_title}</b>")
 
+            # Записываем историю выхода
+            await db.save_join_history(user_id, None, datetime.now())
+
             # Удаляем данные пользователя из БД
             await db.remove_emoji(user_id)
             await db.remove_user_data(user_id)
@@ -697,7 +674,8 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
             await bot.send_message(user_id,
                                    f'''🌟 <b>Добро пожаловать!</b>
 
-Ваша заявка одобрена. Теперь вы можете взаимодействовать с меню.''',
+Ваша заявка```python
+ одобрена. Теперь вы можете взаимодействовать с меню.''',
                                    reply_markup=get_menu())
 
             # Send notification to LIST_ADMIN_ID
@@ -731,6 +709,9 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
             for admin_id in LIST_ADMIN_ID:
                 await bot.send_message(
                     admin_id, f"Освободилась роль:<b>{custom_title}</b>")
+
+            # Записываем историю выхода
+            await db.save_join_history(user_id, None, datetime.now())
 
             # Удаляем данные пользователя из БД
             await db.remove_emoji(user_id)
@@ -1010,7 +991,7 @@ async def end_quiz_command(message: types.Message):
 async def admin_reply_handler(message: types.Message):
     if not message.text:
         return
-    
+
     # Проверяем, что это ответ админа на заявку
     if not (message.chat.type == ChatType.PRIVATE and message.from_user.id
             in ADMIN_IDS and message.reply_to_message):
@@ -1155,46 +1136,51 @@ async def start_bride_game_announcement(message: types.Message, state: FSMContex
 
 @dp.message(lambda m: m.text and m.text.lower() == "запустить жених" and m.from_user.id in ADMIN_IDS)
 async def launch_bride_game(message: types.Message, state: FSMContext):
-    session = await db.get_active_bride_session()
-    if not session:
-        await message.reply("Нет активной сессии для запуска.")
-        return
-    
-    participants = await db.get_bride_session_participants(session['session_id'])
-    if len(participants) < 3:
-        await message.reply("Для игры нужно минимум 3 участника.")
-        return
-    
-    # Выбираем случайного жениха
-    bride = random.choice(participants)
-    await db.add_bride_participant(session['session_id'], bride['user_id'], bride['user_number'], True)
-    
-    # Создаем игру в новой системе
-    game_id = await db.create_bride_game(GROUP_ID, session['creator_id'])
-    
-    # Переносим участников
-    for i, participant in enumerate(participants, 1):
-        await db.join_bride_game(game_id, participant['user_id'])
-    
-    await db.start_bride_game(game_id, bride['user_id'])
-    await db.start_bride_session(session['session_id'])
-    
-    # Уведомляем жениха
-    await bot.send_message(bride['user_id'], "Вы выбраны женихом! Задайте первый вопрос участникам.")
-    
-    # Объявляем в группе или отвечаем в ЛС
-    if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
-        await message.answer("Игра началась! Жених выбран и получил инструкции.")
-    else:
-        await bot.send_message(GROUP_ID, "Игра началась! Жених выбран и получил инструкции.")
-        await message.reply("Игра началась! Жених выбран и получил инструкции.")
-    
-    # Очищаем глобальное хранилище
-    if session['session_id'] in bride_game_messages:
-        del bride_game_messages[session['session_id']]
-    
-    # Очищаем состояние
-    await state.clear()
+    try:
+        session = await db.get_active_bride_session()
+        if not session:
+            await message.reply("Нет активной сессии для запуска.")
+            return
+
+        session_id = session['session_id']
+        
+        # Получаем участников из глобального хранилища
+        if session_id not in bride_game_messages:
+            await message.reply("Ошибка: сессия не найдена в памяти.")
+            return
+            
+        participants_ids = bride_game_messages[session_id]["participants"]
+        
+        if len(participants_ids) < 3:
+            await message.reply("Для игры нужно минимум 3 участника.")
+            return
+
+        # Выбираем случайного жениха
+        bride_id = random.choice(participants_ids)
+        
+        # Отмечаем сессию как запущенную
+        await db.start_bride_session(session_id)
+
+        # Уведомляем жениха
+        await bot.send_message(bride_id, "Вы выбраны женихом! Задайте первый вопрос участникам.")
+
+        # Объявляем в группе
+        if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+            await message.answer("Игра началась! Жених выбран и получил инструкции.")
+        else:
+            await bot.send_message(GROUP_ID, "Игра началась! Жених выбран и получил инструкции.")
+            await message.reply("Игра началась! Жених выбран и получил инструкции.")
+
+        # Обновляем глобальное хранилище - отмечаем жениха
+        bride_game_messages[session_id]["bride_id"] = bride_id
+        bride_game_messages[session_id]["status"] = "started"
+
+        # Очищаем состояние
+        await state.clear()
+        
+    except Exception as e:
+        logging.error(f"Ошибка при запуске игры жених: {e}")
+        await message.reply(f"Произошла ошибка при запуске игры: {str(e)}")
 
 
 @dp.message(lambda m: m.text and m.text.lower() == "завершить жених" and m.from_user.id in ADMIN_IDS)
@@ -1203,39 +1189,39 @@ async def finish_bride_game(message: types.Message, state: FSMContext):
     session = await db.get_active_bride_session()
     if session:
         await db.delete_bride_session(session['session_id'])
-        
+
         # Очищаем глобальное хранилище
         if session['session_id'] in bride_game_messages:
             del bride_game_messages[session['session_id']]
-        
+
         if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
             await message.answer("Набор в игру завершен.")
         else:
             await bot.send_message(GROUP_ID, "Набор в игру завершен.")
             await message.reply("Набор в игру завершен.")
-        
+
         await state.clear()
         return
-    
+
     # Проверяем активную игру
     active_game = await db.get_active_bride_game(GROUP_ID)
     if not active_game:
         await message.reply("Нет активной игры для завершения.")
         return
-    
+
     if active_game['status'] not in ['waiting', 'started']:
         await message.reply("Игра уже завершена.")
         return
-    
+
     # Завершаем игру
     await db.finish_bride_game(active_game['game_id'])
-    
+
     if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
         await message.answer("Игра 'Жених' принудительно завершена администратором.")
     else:
         await bot.send_message(GROUP_ID, "Игра 'Жених' принудительно завершена администратором.")
         await message.reply("Игра 'Жених' принудительно завершена администратором.")
-    
+
     # Уведомляем всех участников
     participants = await db.get_bride_participants(active_game['game_id'])
     for participant in participants:
@@ -1243,7 +1229,7 @@ async def finish_bride_game(message: types.Message, state: FSMContext):
             await bot.send_message(participant['user_id'], "Игра была завершена администратором.")
         except Exception as e:
             logging.error(f"Ошибка уведомления участника {participant['user_id']}: {e}")
-    
+
     # Очищаем состояние
     await state.clear()
 
@@ -1349,8 +1335,23 @@ async def handle_bride_elimination(message: types.Message):
 @dp.message()
 async def handle_admin_response(message: types.Message, state: FSMContext):
     try:
+        # Игнорируем сообщения, которые уже обработаны другими хендлерами
+        if not message.text:
+            return
+
+        # Проверяем подключение к БД
+        if not db.pool:
+            logging.error("Нет подключения к базе данных")
+            return
+
         # Проверяем, не связано ли это с игрой Жених
-        active_game = await db.get_active_bride_game(GROUP_ID)
+        active_game = None
+        try:
+            active_game = await db.get_active_bride_game(GROUP_ID)
+        except Exception as e:
+            logging.error(f"Ошибка получения активной игры: {e}")
+            return
+
         if active_game and active_game['status'] == 'started' and message.chat.type == ChatType.PRIVATE:
             user_id = message.from_user.id
 
@@ -1412,7 +1413,8 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                             for answer in sorted_answers:
                                 results_message += f"{answer['number']}\n{answer['answer']}\n\n"
 
-                            await bot.send_message(GROUP_ID, results_message.strip())
+                            await bot.send_message(
+                                GROUP_ID, results_message.strip())
 
                             # Отправляем сообщение о выборе
                             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1508,21 +1510,24 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                             await message.reply("Отправьте только число.")
                         return
 
-        # Антиспам проверка для пользователей не из группы
-        if (message.chat.type == ChatType.PRIVATE 
-            and message.from_user.id not in ADMIN_IDS):
+        # Обрабатываем только приватные сообщения или админские команды
+        if message.chat.type != ChatType.PRIVATE:
+            return
 
+        # Антиспам проверка для пользователей не из группы
+        if message.from_user.id not in ADMIN_IDS:
             user_id = message.from_user.id
             if not await is_member(user_id) and not check_message_limit(user_id):
-                await message.answer(
-                    "Вы исчерпали лимит сообщений. Вступите в группу, чтобы продолжить общение с ботом. Если это баг, напишите <a href='https://t.me/alren15'>администратору</a>."
-                )
+                try:
+                    await message.answer(
+                        "Вы исчерпали лимит сообщений. Вступите в группу, чтобы продолжить общение с ботом. Если это баг, напишите <a href='https://t.me/alren15'>администратору</a>."
+                    )
+                except Exception as e:
+                    logging.error(f"Ошибка отправки сообщения о лимите: {e}")
                 return
 
         # Проверяем, не является ли это ответом пользователя на сообщение админа
-        if (message.chat.type == ChatType.PRIVATE 
-            and message.from_user.id not in ADMIN_IDS 
-            and message.reply_to_message):
+        if (message.from_user.id not in ADMIN_IDS and message.reply_to_message):
 
             reply_text = message.reply_to_message.text or message.reply_to_message.caption or ""
 
@@ -1551,27 +1556,47 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
     except Exception as e:
         logging.error(f"Ошибка в обработчике ответов: {str(e)}",
                       exc_info=True)
-        await message.reply("Произошла системная ошибка. Проверьте логи.")
+        try:
+            await message.reply("Произошла системная ошибка. Проверьте логи.")
+        except Exception as reply_error:
+            logging.error(f"Не удалось отправить сообщение об ошибке: {reply_error}")
 
 
 async def main():
-    try:
-        # Подключаемся к базе данных
-        if not await db.connect():
-            logging.error("Не удалось подключиться к базе данных. Остановка бота.")
-            return
+    max_retries = 3
+    retry_count = 0
 
-        # Загружаем данные из БД
-        await load_data_from_db()
+    while retry_count < max_retries:
+        try:
+            # Подключаемся к базе данных
+            if not await db.connect():
+                retry_count += 1
+                if retry_count >= max_retries:
+                    logging.error("Не удалось подключиться к базе данных после нескольких попыток. Остановка бота.")
+                    return
+                logging.warning(f"Попытка подключения к БД {retry_count}/{max_retries}")
+                await asyncio.sleep(5)
+                continue
 
-        logging.info("Bot started")
-        await dp.start_polling(bot, allowed_updates=["message", "chat_member", "callback_query"])
-    except Exception as e:
-        logging.error(f"Error: {e}")
-        raise
-    finally:
-        # Закрываем соединение с БД при остановке
-        await db.close()
+            # Загружаем данные из БД
+            await load_data_from_db()
+
+            logging.info("Bot started")
+            await dp.start_polling(bot, allowed_updates=["message", "chat_member", "callback_query"])
+            break
+        except Exception as e:
+            retry_count += 1
+            logging.error(f"Ошибка подключения (попытка {retry_count}/{max_retries}): {e}")
+            if retry_count >= max_retries:
+                logging.error("Максимальное количество попыток подключения исчерпано")
+                raise
+            await asyncio.sleep(10)
+        finally:
+            # Закрываем соединение с БД при остановке
+            try:
+                await db.close()
+            except Exception as e:
+                logging.error(f"Ошибка закрытия БД: {e}")
 
 
 if __name__ == "__main__":
