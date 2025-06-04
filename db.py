@@ -450,12 +450,30 @@ class Database:
             """, group_id)
             return dict(row) if row else None
 
+    async def add_bride_game_participant(self, game_id: int, user_id: int, number: int = None, is_bride: bool = False):
+        """Добавление участника в игру Жених"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO bride_participants (game_id, user_id, number, is_bride)
+                VALUES ($1, $2, $3, $4)
+            """, game_id, user_id, number, is_bride)
+
+    async def get_bride_rounds(self, game_id: int) -> List[Dict]:
+        """Получение всех раундов игры"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT * FROM bride_rounds 
+                WHERE game_id = $1
+                ORDER BY round_number
+            """, game_id)
+            return [dict(row) for row in rows]
+
     async def get_bride_participants(self, game_id: int) -> List[Dict]:
         """Получение участников игры Жених"""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT * FROM bride_participants 
-                WHERE game_id = $1 AND is_out = FALSE
+                WHERE game_id = $1
                 ORDER BY user_id
             """, game_id)
             return [dict(row) for row in rows]
