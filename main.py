@@ -1529,7 +1529,9 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                 return
 
         # Проверяем, не является ли это ответом пользователя на сообщение админа
-        if (message.from_user.id not in ADMIN_IDS and message.reply_to_message):
+        if (message.from_user.id not in ADMIN_IDS and 
+            message.reply_to_message and 
+            message.chat.type == ChatType.PRIVATE):
 
             reply_text = message.reply_to_message.text or message.reply_to_message.caption or ""
 
