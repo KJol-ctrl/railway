@@ -1450,6 +1450,20 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                                 await message.reply("Отправьте только число участника.")
                                 return
                     
+                    # Проверяем, есть ли незавершенный раунд
+                    current_round = await db.get_current_bride_round(active_game['game_id'])
+                    if current_round and not current_round['voted_out']:
+                        # Проверяем, все ли ответили на текущий вопрос
+                        answers = await db.get_bride_answers(current_round['round_id'])
+                        non_bride_participants = [p for p in participants if not p['is_bride'] and not p['is_out']]
+                        
+                        if len(answers) < len(non_bride_participants):
+                            await message.reply("Дождитесь, пока все участники ответят на текущий вопрос.")
+                            return
+                        elif not current_round['voted_out']:
+                            await message.reply("Сначала выберите, кого исключить из текущего раунда.")
+                            return
+                    
                     # Если это новый вопрос от жениха
                     # Получаем текущий номер раунда
                     existing_rounds = await db.get_bride_rounds(active_game['game_id'])
