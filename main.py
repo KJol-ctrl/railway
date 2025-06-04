@@ -1171,8 +1171,12 @@ async def launch_bride_game(message: types.Message, state: FSMContext):
             await message.reply("Для игры нужно минимум 3 участника.")
             return
 
-        # Выбираем случайного жениха
-        bride_id = random.choice(participants_ids)
+        # Выбираем случайного жениха из тех, кто еще не был женихом
+        eligible_candidates = await db.get_eligible_bride_candidates(participants_ids)
+        bride_id = random.choice(eligible_candidates)
+        
+        # Отмечаем выбранного как жениха
+        await db.mark_as_bride(bride_id)
         
         # Создаем игру в БД
         game_id = await db.create_bride_game(GROUP_ID, message.from_user.id)
@@ -1184,7 +1188,8 @@ async def launch_bride_game(message: types.Message, state: FSMContext):
                 # Жених без номера
                 await db.add_bride_game_participant(game_id, participant_id, None, True)
             else:
-                # Остальные участники с номерами
+                # Остальные участники с номерами - сбрасываем их статус жениха
+                await db.reset_bride_status(participant_id)
                 await db.add_bride_game_participant(game_id, participant_id, participant_number, False)
                 participant_number += 1
         
