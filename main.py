@@ -1326,59 +1326,7 @@ async def bride_join_callback(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
 
-@dp.message(lambda m: m.chat.type == ChatType.PRIVATE)
-async def handle_bride_elimination(message: types.Message):
-    user_id = message.from_user.id
-    session = await db.get_active_bride_session()
-    if not session:
-        return
 
-    session_id = session['session_id']
-    participants = await db.get_bride_session_participants(session_id)
-    current = next((p for p in participants if p['user_id'] == user_id and p['is_bride']), None)
-    if not current:
-        return
-
-    try:
-        number = int(message.text.strip())
-    except:
-        await message.answer("Пожалуйста, отправьте только число участника, которого вы исключаете.")
-        return
-
-    alive = [p for p in participants if not p['eliminated'] and not p['is_bride']]
-    if number not in [p['number'] for p in alive]:
-        await message.answer("Такого номера нет или он уже выбыл.")
-        return
-
-    await db.eliminate_bride_participant(session_id, number)
-    eliminated = next(p for p in alive if p['number'] == number)
-
-    await bot.send_message(GROUP_ID, f"Жених выбрал {number}")
-    await bot.send_message(eliminated['user_id'], "Вы выбыли. Дождитесь конца игры.")
-
-    # Проверка на победителя
-    remaining = [p for p in participants if not p['eliminated'] and not p['is_bride']]
-    if len(remaining) == 1:
-        winner = remaining[0]
-        bride_user = await bot.get_chat(current['user_id'])
-        winner_user = await bot.get_chat(winner['user_id'])
-
-        await bot.send_message(GROUP_ID, f"Выйграл номер {winner['number']}! Игра окончена.")
-        await bot.send_message(winner['user_id'], "Поздравляю, вы выйграли!")
-
-        lines = [
-            f"Женихом был - {bride_user.full_name}",
-            f"Жених выбрал номер {winner['number']} - {winner_user.full_name}"
-        ]
-        ordered = sorted([p for p in participants if not p['is_bride']], key=lambda x: x['number'])
-        for p in ordered:
-            u = await bot.get_chat(p['user_id'])
-            lines.append(f"{p['number']} - {u.full_name}")
-
-        await bot.send_message(GROUP_ID, "\n".join(lines))
-        await db.delete_bride_session(session_id)
-    else:
-        await bot.send_message(current['user_id'], "Отправьте следующий вопрос для участников.")
 
 
 @dp.message()
