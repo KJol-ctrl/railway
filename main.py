@@ -1191,10 +1191,23 @@ async def launch_bride_game(message: types.Message, state: FSMContext):
         # Запускаем игру
         await db.start_bride_game(game_id, bride_id)
 
-        # Уведомляем жениха
+        # Создаем кнопку для перехода в бота
+        bot_username = (await bot.me()).username
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Перейти в бота", url=f"https://t.me/{bot_username}")]
+        ])
+
+        # Сначала объявляем в группе
+        if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+            await message.answer("🎮 Игра началась! Жених выбран и получил инструкции. Участники получили свои номера.", reply_markup=keyboard)
+        else:
+            await bot.send_message(GROUP_ID, "🎮 Игра началась! Жених выбран и получил инструкции. Участники получили свои номера.", reply_markup=keyboard)
+            await message.reply("🎮 Игра началась! Жених выбран и получил инструкции. Участники получили свои номера.")
+
+        # Затем уведомляем жениха
         await bot.send_message(bride_id, "🤵 Вы выбраны женихом! Задайте первый вопрос участникам.")
 
-        # Отправляем номера остальным участникам
+        # И отправляем номера остальным участникам
         participants = await db.get_bride_participants(game_id)
         for participant in participants:
             if not participant['is_bride'] and participant['number']:
@@ -1205,19 +1218,6 @@ async def launch_bride_game(message: types.Message, state: FSMContext):
                     )
                 except Exception as e:
                     logging.error(f"Ошибка отправки номера участнику {participant['user_id']}: {e}")
-
-        # Создаем кнопку для перехода в бота
-        bot_username = (await bot.me()).username
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Перейти в бота", url=f"https://t.me/{bot_username}")]
-        ])
-
-        # Объявляем в группе
-        if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
-            await message.answer("🎮 Игра началась! Жених выбран и получил инструкции. Участники получили свои номера.", reply_markup=keyboard)
-        else:
-            await bot.send_message(GROUP_ID, "🎮 Игра началась! Жених выбран и получил инструкции. Участники получили свои номера.", reply_markup=keyboard)
-            await message.reply("🎮 Игра началась! Жених выбран и получил инструкции. Участники получили свои номера.")
 
         # Очищаем сессию набора
         await db.delete_bride_session(session_id)
@@ -1542,11 +1542,10 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                 username = f" (@{user.username})" if user.username else ""
 
                 # Отправляем ответ пользователя всем админам
-                admin_notification = f'''<b>Ответ от пользователя {user.full_name}{username}:</b>
+                admin_notification = f'''↪️ ID: <code>{user_id}</code>
+Ответ пользователя {user.full_name}{username}:
 
-<code>{message.text}</code>
-
-<b>ID для ответа:</b> <code>{user_id}</code>'''
+<b>{message.text}</b>'''
 
                 for admin_id in ADMIN_IDS:
                     try:
@@ -1569,11 +1568,10 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
             username = f" (@{user.username})" if user.username else ""
 
             # Отправляем сообщение всем админам
-            admin_notification = f'''<b>Сообщение от пользователя {user.full_name}{username}:</b>
+            admin_notification = f'''↪️ ID: <code>{user_id}</code>
+Ответ пользователя {user.full_name}{username}:
 
-<code>{message.text}</code>
-
-<b>ID для ответа:</b> <code>{user_id}</code>'''
+<b>{message.text}</b>'''
 
             for admin_id in ADMIN_IDS:
                 try:
