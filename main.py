@@ -1206,11 +1206,17 @@ async def launch_bride_game(message: types.Message, state: FSMContext):
                 except Exception as e:
                     logging.error(f"Ошибка отправки номера участнику {participant['user_id']}: {e}")
 
+        # Создаем кнопку для перехода в бота
+        bot_username = (await bot.me()).username
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Перейти в бота", url=f"https://t.me/{bot_username}")]
+        ])
+
         # Объявляем в группе
         if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
-            await message.answer("🎮 Игра началась! Жених выбран и получил инструкции. Участники получили свои номера.")
+            await message.answer("🎮 Игра началась! Жених выбран и получил инструкции. Участники получили свои номера.", reply_markup=keyboard)
         else:
-            await bot.send_message(GROUP_ID, "🎮 Игра началась! Жених выбран и получил инструкции. Участники получили свои номера.")
+            await bot.send_message(GROUP_ID, "🎮 Игра началась! Жених выбран и получил инструкции. Участники получили свои номера.", reply_markup=keyboard)
             await message.reply("🎮 Игра началась! Жених выбран и получил инструкции. Участники получили свои номера.")
 
         # Очищаем сессию набора
@@ -1403,8 +1409,81 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
             user_participant = next((p for p in participants if p['user_id'] == user_id), None)
 
             if user_participant:
-                # Если это жених отправляет вопрос
+                # Если это жених и игра ожидает вопрос или новый вопрос
                 if user_participant['is_bride']:
+                    # Проверяем, не ждет ли игра выбора для исключения
+                    current_round = await db.get_current_bride_round(active_game['game_id'])
+                    if current_round:
+                        # Проверяем, есть ли все ответы на текущий вопрос
+                        answers = await db.get_bride_answers(current_round['round_id'])
+                        non_bride_participants = [p for p in participants if not p['is_bride'] and not p['is_out']]
+                        
+                        if len(answers) == len(non_bride_participants) and not current_round['voted_out']:
+                            # Жених должен выбрать кого исключить
+                            try:
+                                choice = int(message.text.strip())
+                                valid_numbers = [p['number'] for p in non_bride_participants if p['number']]
+
+                                if choice not in valid_numbers:
+                                    await message.reply("Отправьте только число участника из списка.")
+                                    return
+
+                                # Находим участника для исключения
+                                participant_to_exclude = next(p for p in non_bride_participants if p['number'] == choice)
+
+                                # Исключаем участника
+                                await db.vote_out_participant(active_game['game_id'], participant_to_exclude['user_id'], current_round['round_id'])
+
+                                # Отправляем сообщение в группу
+                                await bot.send_message(GROUP_ID, f"Жених выбрал {choice}")
+
+                                # Уведомляем исключенного участника
+                                await bot.send_message(
+                                    participant_to_exclude['user_id'],
+                                    "Вы выбыли. Дождитесь конца игры."
+                                )
+
+                                # Проверяем, остался ли только один участник
+                                remaining_participants = await db.get_bride_participants(active_game['game_id'])
+                                active_non_bride = [p for p in remaining_participants if not p['is_out'] and not p['is_bride']]
+
+                                if len(active_non_bride) == 1:
+                                    # Игра окончена
+                                    winner = active_non_bride[0]
+                                    await bot.send_message(GROUP_ID, f"Выиграл номер {winner['number']}! Игра окончена.")
+
+                                    # Поздравляем победителя
+                                    await bot.send_message(winner['user_id'], "Поздравляю, вы выиграли!")
+
+                                    # Раскрываем роли
+                                    bride_user = await bot.get_chat(user_id)
+                                    winner_user = await bot.get_chat(winner['user_id'])
+
+                                    results_text = f"Женихом был - {bride_user.full_name}\n"
+                                    results_text += f"Жених выбрал номер {winner['number']} - {winner_user.full_name}\n\n"
+
+                                    # Перечисляем всех участников
+                                    all_participants = await db.get_bride_participants(active_game['game_id'])
+                                    for participant in sorted(all_participants, key=lambda x: x['number'] or 0):
+                                        if participant['number'] and not participant['is_bride']:
+                                            participant_user = await bot.get_chat(participant['user_id'])
+                                            results_text += f"{participant['number']} - {participant_user.full_name}\n"
+
+                                    await bot.send_message(GROUP_ID, results_text.strip())
+
+                                    # Завершаем игру
+                                    await db.finish_bride_game(active_game['game_id'])
+                                else:
+                                    # Продолжаем игру - жених задает новый вопрос
+                                    await message.reply("Отправьте следующий вопрос для оставшихся участников.")
+
+                                return
+
+                            except ValueError:
+                                await message.reply("Отправьте только число участника.")
+                                return
+                    
+                    # Если это новый вопрос от жениха
                     # Получаем текущий номер раунда
                     existing_rounds = await db.get_bride_rounds(active_game['game_id'])
                     round_number = len(existing_rounds) + 1
@@ -1415,8 +1494,9 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                     await message.reply("📤 Ваш вопрос отправлен участникам.")
 
                     # Отправляем вопрос в группу
+                    bot_username = (await bot.me()).username
                     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="Перейти в бота", url=f"https://t.me/{(await bot.me()).username}")]
+                        [InlineKeyboardButton(text="Перейти в бота", url=f"https://t.me/{bot_username}")]
                     ])
 
                     await bot.send_message(
@@ -1438,8 +1518,8 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
 
                     return
 
-                # Если это не жених и не ведущий, сохраняем ответ
-                elif not user_participant['is_bride'] and user_id != active_game['creator_id']:
+                # Если это не жених, сохраняем ответ
+                elif not user_participant['is_bride']:
                     # Получаем текущий раунд
                     current_round = await db.get_current_bride_round(active_game['game_id'])
                     if current_round:
@@ -1448,7 +1528,7 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
 
                         # Проверяем, все ли ответили
                         answers = await db.get_bride_answers(current_round['round_id'])
-                        non_bride_participants = [p for p in participants if not p['is_bride'] and p['user_id'] != active_game['creator_id']]
+                        non_bride_participants = [p for p in participants if not p['is_bride'] and not p['is_out']]
 
                         if len(answers) == len(non_bride_participants):
                             # Все ответили, отправляем результаты в группу
@@ -1464,8 +1544,9 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                                 GROUP_ID, results_message.strip())
 
                             # Отправляем сообщение о выборе
+                            bot_username = (await bot.me()).username
                             keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                                [InlineKeyboardButton(text="Перейти в бота", url=f"https://t.me/{(await bot.me()).username}")]
+                                [InlineKeyboardButton(text="Перейти в бота", url=f"https://t.me/{bot_username}")]
                             ])
 
                             await bot.send_message(
@@ -1481,80 +1562,6 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                                 "Напишите число того, чей ответ вам понравился меньше всего."
                             )
 
-                        return
-
-                # Если это жених выбирает кого исключить
-                elif user_participant['is_bride']:
-                    try:
-                        choice = int(message.text.strip())
-
-                        # Проверяем, что это валидный номер
-                        active_participants = [p for p in participants if not p['is_out'] and not p['is_bride'] and p['user_id'] != active_game['creator_id']]
-                        valid_numbers = [p['number'] for p in active_participants if p['number']]
-
-                        if choice not in valid_numbers:
-                            await message.reply("Отправьте только число участника из списка.")
-                            return
-
-                        # Находим участника для исключения
-                        participant_to_exclude = next(p for p in active_participants if p['number'] == choice)
-
-                        # Получаем текущий раунд
-                        current_round = await db.get_current_bride_round(active_game['game_id'])
-
-                        # Исключаем участника
-                        await db.vote_out_participant(active_game['game_id'], participant_to_exclude['user_id'], current_round['round_id'])
-
-                        # Отправляем сообщение в группу
-                        await bot.send_message(GROUP_ID, f"Жених выбрал {choice}")
-
-                        # Уведомляем исключенного участника
-                        await bot.send_message(
-                            participant_to_exclude['user_id'],
-                            "Вы выбыли. Дождитесь конца игры."
-                        )
-
-                        # Проверяем, остался ли только один участник
-                        remaining_participants = await db.get_bride_participants(active_game['game_id'])
-                        active_non_bride = [p for p in remaining_participants if not p['is_out'] and not p['is_bride'] and p['user_id'] != active_game['creator_id']]
-
-                        if len(active_non_bride) == 1:
-                            # Игра окончена
-                            winner = active_non_bride[0]
-                            await bot.send_message(GROUP_ID, f"Выиграл номер {winner['number']}! Игра окончена.")
-
-                            # Поздравляем победителя
-                            await bot.send_message(winner['user_id'], "Поздравляю, вы выиграли!")
-
-                            # Раскрываем роли
-                            bride_user = await bot.get_chat(user_id)
-                            winner_user = await bot.get_chat(winner['user_id'])
-
-                            results_text = f"Женихом был - {bride_user.full_name}\n"
-                            results_text += f"Жених выбрал номер {winner['number']} - {winner_user.full_name}\n\n"
-
-                            # Перечисляем всех участников
-                            all_participants = await db.get_bride_participants(active_game['game_id'])
-                            for participant in sorted(all_participants, key=lambda x: x['number'] or 0):
-                                if participant['number'] and not participant['is_bride']:
-                                    participant_user = await bot.get_chat(participant['user_id'])
-                                    results_text += f"{participant['number']} - {participant_user.full_name}\n"
-
-                            await bot.send_message(GROUP_ID, results_text.strip())
-
-                            # Завершаем игру
-                            await db.finish_bride_game(active_game['game_id'])
-                        else:
-                            # Продолжаем игру - жених задает новый вопрос
-                            await message.reply("Отправьте следующий вопрос для оставшихся участников.")
-
-                        return
-
-                    except ValueError:
-                        if len(message.text.strip().split()) > 1:
-                            await message.reply("Нужно написать одно число.")
-                        else:
-                            await message.reply("Отправьте только число.")
                         return
 
         # Обрабатываем только приватные сообщения или админские команды
@@ -1584,7 +1591,7 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                 user_id = user.id
                 username = f" (@{user.username})" if user.username else ""
 
-                # Отправляем ответ пользователя всем админам как reply на их сообщение
+                # Отправляем ответ пользователя всем админам
                 admin_notification = f'''<b>Ответ от пользователя {user.full_name}{username}:</b>
 
 <code>{message.text}</code>
@@ -1599,6 +1606,33 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
 
                 await message.reply("Ваш ответ отправлен администраторам.")
                 return
+
+        # Обрабатываем сообщения от пользователей не из группы (обратная связь)
+        if (message.from_user.id not in ADMIN_IDS and 
+            message.chat.type == ChatType.PRIVATE and 
+            not message.reply_to_message and 
+            not await is_member(message.from_user.id)):
+            
+            # Это обратная связь от пользователя не из группы
+            user = message.from_user
+            user_id = user.id
+            username = f" (@{user.username})" if user.username else ""
+
+            # Отправляем сообщение всем админам
+            admin_notification = f'''<b>Сообщение от пользователя {user.full_name}{username}:</b>
+
+<code>{message.text}</code>
+
+<b>ID для ответа:</b> <code>{user_id}</code>'''
+
+            for admin_id in ADMIN_IDS:
+                try:
+                    await bot.send_message(admin_id, admin_notification, parse_mode=ParseMode.HTML)
+                except Exception as e:
+                    logging.error(f"Ошибка отправки сообщения пользователя админу {admin_id}: {e}")
+
+            await message.reply("Ваше сообщение отправлено администраторам.")
+            return
 
         # Логика обработки обычных сообщений (остается без изменений для других случаев)
         pass
