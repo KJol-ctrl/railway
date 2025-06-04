@@ -455,7 +455,7 @@ class Database:
         async with self.pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO bride_participants (game_id, user_id, number, is_bride)
-                VALUES ($1, $2, $3, $4)
+                VALUES ($1, $2::BIGINT, $3, $4)
             """, game_id, user_id, number, is_bride)
 
     async def get_bride_rounds(self, game_id: int) -> List[Dict]:
@@ -483,14 +483,14 @@ class Database:
         async with self.pool.acquire() as conn:
             await conn.execute("""
                 UPDATE bride_games 
-                SET status = 'started', bride_id = $2
+                SET status = 'started', bride_id = $2::BIGINT
                 WHERE game_id = $1
             """, game_id, bride_id)
 
             await conn.execute("""
                 UPDATE bride_participants 
                 SET is_bride = TRUE
-                WHERE game_id = $1 AND user_id = $2
+                WHERE game_id = $1 AND user_id = $2::BIGINT
             """, game_id, bride_id)
 
     async def create_bride_round(self, game_id: int, round_number: int, question: str) -> int:
@@ -528,15 +528,16 @@ class Database:
     async def vote_out_participant(self, game_id: int, user_id: int, round_id: int):
         """Исключение участника из игры"""
         async with self.pool.acquire() as conn:
+            # Явно приводим user_id к типу BIGINT
             await conn.execute("""
                 UPDATE bride_participants 
                 SET is_out = TRUE
-                WHERE game_id = $1 AND user_id = $2
+                WHERE game_id = $1 AND user_id = $2::BIGINT
             """, game_id, user_id)
 
             await conn.execute("""
                 UPDATE bride_rounds 
-                SET voted_out = $2
+                SET voted_out = $2::BIGINT
                 WHERE round_id = $1
             """, round_id, user_id)
 
@@ -627,7 +628,7 @@ class Database:
         async with self.pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO bride_game_participants (session_id, user_id, user_number, is_bride)
-                VALUES ($1, $2, $3, $4)
+                VALUES ($1, $2::BIGINT, $3, $4)
             """, session_id, user_id, number, is_bride)
 
     async def get_bride_session_participants(self, session_id: int) -> List[Dict]:
