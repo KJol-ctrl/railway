@@ -1375,7 +1375,7 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                             # Жених должен выбрать кого исключить
                             try:
                                 choice = int(message.text.strip())
-                                valid_numbers = [p['number'] for p in non_bride_participants if p['number']]
+                                valid_numbers = [p['number'] for p in non_bride_participants if p['number'] is not None]
 
                                 if choice not in valid_numbers:
                                     await message.reply("Отправьте только число участника из списка.")
