@@ -1164,12 +1164,9 @@ async def launch_bride_game(message: types.Message, state: FSMContext):
 
         session_id = session['session_id']
         
-        # Получаем участников из глобального хранилища
-        if session_id not in bride_game_messages:
-            await message.reply("Ошибка: сессия не найдена в памяти.")
-            return
-            
-        participants_ids = bride_game_messages[session_id]["participants"]
+        # Получаем участников из базы данных
+        participants_data = await db.get_bride_session_participants(session_id)
+        participants_ids = [p['user_id'] for p in participants_data]
         
         if len(participants_ids) < 3:
             await message.reply("Для игры нужно минимум 3 участника.")
@@ -1302,34 +1299,42 @@ async def bride_join_callback(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Игра уже началась или завершена.", show_alert=True)
         return
 
-    # Получаем текущих участников из глобального хранилища
-    if session_id not in bride_game_messages:
-        await callback.answer("Ошибка: сессия не найдена.", show_alert=True)
-        return
+    # Получаем участников из базы данных
+    participants_data = await db.get_bride_session_participants(session_id)
+    participant_ids = [p['user_id'] for p in participants_data]
 
-    participants = bride_game_messages[session_id]["participants"]
-
-    if user_id in participants:
+    if user_id in participant_ids:
         await callback.answer("Вы уже присоединились.", show_alert=True)
         return
 
-    number = len(participants)
+    number = len(participant_ids)
     await db.add_bride_participant(session_id, user_id, number)
-    participants.append(user_id)
+    participant_ids.append(user_id)
 
-    # Обновляем глобальное хранилище
-    bride_game_messages[session_id]["participants"] = participants
+    # Обновляем глобальное хранилище если оно существует
+    if session_id in bride_game_messages:
+        bride_game_messages[session_id]["participants"] = participant_ids
 
     await bot.send_message(user_id, "Вы присоединились к игре.")
 
     # Обновляем сообщение в группе
     try:
-        await bot.edit_message_text(
-            chat_id=bride_game_messages[session_id]["chat_id"],
-            message_id=bride_game_messages[session_id]["message_id"],
-            text=f"Идёт набор в игру \"Жених\"\nУчастников: {len(participants)}",
-            reply_markup=callback.message.reply_markup
-        )
+        # Если есть информация о сообщении в памяти, используем её
+        if session_id in bride_game_messages:
+            await bot.edit_message_text(
+                chat_id=bride_game_messages[session_id]["chat_id"],
+                message_id=bride_game_messages[session_id]["message_id"],
+                text=f"Идёт набор в игру \"Жених\"\nУчастников: {len(participant_ids)}",
+                reply_markup=callback.message.reply_markup
+            )
+        else:
+            # Иначе пытаемся обновить текущее сообщение
+            await bot.edit_message_text(
+                chat_id=callback.message.chat.id,
+                message_id=callback.message.message_id,
+                text=f"Идёт набор в игру \"Жених\"\nУчастников: {len(participant_ids)}",
+                reply_markup=callback.message.reply_markup
+            )
     except Exception as e:
         logging.error(f"Ошибка обновления сообщения: {e}")
 
