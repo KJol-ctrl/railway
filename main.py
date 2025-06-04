@@ -674,8 +674,7 @@ async def chat_member_handler(update: types.ChatMemberUpdated):
             await bot.send_message(user_id,
                                    f'''🌟 <b>Добро пожаловать!</b>
 
-Ваша заявка```python
- одобрена. Теперь вы можете взаимодействовать с меню.''',
+Ваша заявка одобрена. Теперь вы можете взаимодействовать с меню.''',
                                    reply_markup=get_menu())
 
             # Send notification to LIST_ADMIN_ID
@@ -999,24 +998,38 @@ async def admin_reply_handler(message: types.Message):
 
     reply_text = message.reply_to_message.text or message.reply_to_message.caption or ""
 
-    # Проверяем, что это одна из заявок, на которые можно отвечать
+    # Проверяем, что это одна из заявок или ответов пользователей, на которые можно отвечать
     if not any(keyword in reply_text for keyword in [
         "Заявка на вступление!", 
         "Заявка на рест",
         "Не может влиться!",
-        "ответил:"
+        "ответил:",
+        "Ответ от пользователя",
+        "ID для ответа:"
     ]):
         return
 
-    # Парсим ID пользователя из заявки на вступление
+    # Парсим ID пользователя
     user_id = None
-    for line in reply_text.split('\n'):
-        if line.startswith("#️⃣ ID:"):
-            user_id_str = line.split(":")[1].strip().replace(
-                "<code>", "").replace("</code>", "")
-            if user_id_str.isdigit():
-                user_id = int(user_id_str)
-            break
+    
+    # Сначала ищем в строке "ID для ответа:" (для ответов пользователей)
+    if "ID для ответа:" in reply_text:
+        for line in reply_text.split('\n'):
+            if "ID для ответа:" in line:
+                user_id_str = line.split(":")[1].strip().replace("<code>", "").replace("</code>", "")
+                if user_id_str.isdigit():
+                    user_id = int(user_id_str)
+                break
+    
+    # Если не найден, ищем стандартный формат заявки
+    if not user_id:
+        for line in reply_text.split('\n'):
+            if line.startswith("#️⃣ ID:"):
+                user_id_str = line.split(":")[1].strip().replace(
+                    "<code>", "").replace("</code>", "")
+                if user_id_str.isdigit():
+                    user_id = int(user_id_str)
+                break
 
     # Альтернативный парсинг если ID не найден
     if not user_id and "tg://user?id=" in reply_text:
@@ -1039,16 +1052,19 @@ async def admin_reply_handler(message: types.Message):
                 # Обновляем роль в данных пользователя
                 await db.save_user_data(user_id, role=new_role)
 
-                # Уведомляем админов об изменении роли
-                role_change_message = f"Роль {target_user.full_name} изменена на <b>{new_role}</b>"
+                # Уведомляем админа, который изменил роль
+                await message.reply(f"Роль пользователя изменена на: {new_role}")
+
+                # Уведомляем остальных админов об изменении роли
+                admin_username = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
+                other_admins_message = f"{admin_username} изменил роль {target_user.full_name} на: <b>{new_role}</b>"
 
                 for admin_id in ADMIN_IDS:
-                    try:
-                        await bot.send_message(admin_id, role_change_message, parse_mode=ParseMode.HTML)
-                    except Exception as e:
-                        logging.error(f"Ошибка отправки уведомления об изменении роли админу {admin_id}: {e}")
-
-                await message.reply(f"Роль пользователя изменена на: {new_role}")
+                    if admin_id != message.from_user.id:  # Не отправляем тому, кто изменил
+                        try:
+                            await bot.send_message(admin_id, other_admins_message, parse_mode=ParseMode.HTML)
+                        except Exception as e:
+                            logging.error(f"Ошибка отправки уведомления об изменении роли админу {admin_id}: {e}")
                 return
             except Exception as e:
                 await message.reply(f"Ошибка при изменении роли: {str(e)}")
@@ -1324,12 +1340,12 @@ async def handle_bride_elimination(message: types.Message):
         return
 
     alive = [p for p in participants if not p['eliminated'] and not p['is_bride']]
-    if number not in [p['user_number'] for p in alive]:
+    if number not in [p['number'] for p in alive]:
         await message.answer("Такого номера нет или он уже выбыл.")
         return
 
     await db.eliminate_bride_participant(session_id, number)
-    eliminated = next(p for p in alive if p['user_number'] == number)
+    eliminated = next(p for p in alive if p['number'] == number)
 
     await bot.send_message(GROUP_ID, f"Жених выбрал {number}")
     await bot.send_message(eliminated['user_id'], "Вы выбыли. Дождитесь конца игры.")
@@ -1341,17 +1357,17 @@ async def handle_bride_elimination(message: types.Message):
         bride_user = await bot.get_chat(current['user_id'])
         winner_user = await bot.get_chat(winner['user_id'])
 
-        await bot.send_message(GROUP_ID, f"Выйграл номер {winner['user_number']}! Игра окончена.")
+        await bot.send_message(GROUP_ID, f"Выйграл номер {winner['number']}! Игра окончена.")
         await bot.send_message(winner['user_id'], "Поздравляю, вы выйграли!")
 
         lines = [
             f"Женихом был - {bride_user.full_name}",
-            f"Жених выбрал номер {winner['user_number']} - {winner_user.full_name}"
+            f"Жених выбрал номер {winner['number']} - {winner_user.full_name}"
         ]
-        ordered = sorted([p for p in participants if not p['is_bride']], key=lambda x: x['user_number'])
+        ordered = sorted([p for p in participants if not p['is_bride']], key=lambda x: x['number'])
         for p in ordered:
             u = await bot.get_chat(p['user_id'])
-            lines.append(f"{p['user_number']} - {u.full_name}")
+            lines.append(f"{p['number']} - {u.full_name}")
 
         await bot.send_message(GROUP_ID, "\n".join(lines))
         await db.delete_bride_session(session_id)
@@ -1566,11 +1582,14 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
             if "Ответ администратора:" in reply_text:
                 user = message.from_user
                 user_id = user.id
+                username = f" (@{user.username})" if user.username else ""
 
-                # Отправляем ответ пользователя всем админам
-                admin_notification = f'''Пользователь <b>{user.full_name}</b> ответил:
+                # Отправляем ответ пользователя всем админам как reply на их сообщение
+                admin_notification = f'''<b>Ответ от пользователя {user.full_name}{username}:</b>
 
-<code>{message.text}</code>'''
+<code>{message.text}</code>
+
+<b>ID для ответа:</b> <code>{user_id}</code>'''
 
                 for admin_id in ADMIN_IDS:
                     try:
