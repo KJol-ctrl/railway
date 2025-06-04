@@ -659,30 +659,14 @@ class Database:
         try:
             async with self.pool.acquire() as conn:
                 await conn.execute("""
-                    UPDATE bride_sessions 
-                    SET status = 'started'
+                    UPDATE bride_game_sessions 
+                    SET started = TRUE
                     WHERE session_id = $1
                 """, session_id)
                 logging.info(f"Сессия {session_id} запущена")
         except Exception as e:
             logging.error(f"Ошибка при запуске сессии {session_id}: {e}")
             raise
-
-    async def get_bride_session_participants(self, session_id: int):
-        """Получает участников сессии игры жених"""
-        try:
-            async with self.pool.acquire() as conn:
-                rows = await conn.fetch("""
-                    SELECT user_id, user_number, is_bride, eliminated
-                    FROM bride_participants 
-                    WHERE session_id = $1
-                    ORDER BY user_number
-                """, session_id)
-                return [dict(row) for row in rows]
-        except Exception as e:
-            logging.error(f"Ошибка получения участников сессии {session_id}: {e}")
-            return []
-
     async def get_active_bride_session(self) -> Optional[Dict]:
         """Получение активной сессии игры Жених"""
         async with self.pool.acquire() as conn:
