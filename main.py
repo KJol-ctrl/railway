@@ -1158,22 +1158,49 @@ async def launch_bride_game(message: types.Message, state: FSMContext):
         # Выбираем случайного жениха
         bride_id = random.choice(participants_ids)
         
-        # Отмечаем сессию как запущенную
-        await db.start_bride_session(session_id)
+        # Создаем игру в БД
+        game_id = await db.create_bride_game(GROUP_ID, message.from_user.id)
+        
+        # Добавляем участников с номерами
+        participant_number = 1
+        for participant_id in participants_ids:
+            if participant_id == bride_id:
+                # Жених без номера
+                await db.add_bride_game_participant(game_id, participant_id, None, True)
+            else:
+                # Остальные участники с номерами
+                await db.add_bride_game_participant(game_id, participant_id, participant_number, False)
+                participant_number += 1
+        
+        # Запускаем игру
+        await db.start_bride_game(game_id, bride_id)
 
         # Уведомляем жениха
-        await bot.send_message(bride_id, "Вы выбраны женихом! Задайте первый вопрос участникам.")
+        await bot.send_message(bride_id, "🤵 Вы выбраны женихом! Задайте первый вопрос участникам.")
+
+        # Отправляем номера остальным участникам
+        participants = await db.get_bride_participants(game_id)
+        for participant in participants:
+            if not participant['is_bride'] and participant['number']:
+                try:
+                    await bot.send_message(
+                        participant['user_id'], 
+                        f"🎭 Ваш номер в игре: {participant['number']}\nОжидайте вопрос от жениха."
+                    )
+                except Exception as e:
+                    logging.error(f"Ошибка отправки номера участнику {participant['user_id']}: {e}")
 
         # Объявляем в группе
         if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
-            await message.answer("Игра началась! Жених выбран и получил инструкции.")
+            await message.answer("🎮 Игра началась! Жених выбран и получил инструкции. Участники получили свои номера.")
         else:
-            await bot.send_message(GROUP_ID, "Игра началась! Жених выбран и получил инструкции.")
-            await message.reply("Игра началась! Жених выбран и получил инструкции.")
+            await bot.send_message(GROUP_ID, "🎮 Игра началась! Жених выбран и получил инструкции. Участники получили свои номера.")
+            await message.reply("🎮 Игра началась! Жених выбран и получил инструкции. Участники получили свои номера.")
 
-        # Обновляем глобальное хранилище - отмечаем жениха
-        bride_game_messages[session_id]["bride_id"] = bride_id
-        bride_game_messages[session_id]["status"] = "started"
+        # Очищаем сессию набора
+        await db.delete_bride_session(session_id)
+        if session_id in bride_game_messages:
+            del bride_game_messages[session_id]
 
         # Очищаем состояние
         await state.clear()
@@ -1360,12 +1387,16 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
             user_participant = next((p for p in participants if p['user_id'] == user_id), None)
 
             if user_participant:
-                # Если это жених и игра в состоянии ожидания вопроса
+                # Если это жених отправляет вопрос
                 if user_participant['is_bride']:
+                    # Получаем текущий номер раунда
+                    existing_rounds = await db.get_bride_rounds(active_game['game_id'])
+                    round_number = len(existing_rounds) + 1
+                    
                     # Создаем раунд и сохраняем вопрос
-                    round_id = await db.create_bride_round(active_game['game_id'], 1, message.text)
+                    round_id = await db.create_bride_round(active_game['game_id'], round_number, message.text)
 
-                    await message.reply("Ваш вопрос отправлен.")
+                    await message.reply("📤 Ваш вопрос отправлен участникам.")
 
                     # Отправляем вопрос в группу
                     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1374,20 +1405,20 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
 
                     await bot.send_message(
                         GROUP_ID,
-                        f"Вопрос!\n{message.text}",
+                        f"❓ <b>Вопрос от жениха:</b>\n{message.text}",
                         reply_markup=keyboard
                     )
 
-                    # Отправляем вопрос остальным участникам
-                    for participant in participants:
-                        if not participant['is_bride'] and participant['user_id'] != active_game['creator_id']:
-                            try:
-                                await bot.send_message(
-                                    participant['user_id'],
-                                    f"Ответьте на вопрос жениха - {message.text}"
-                                )
-                            except Exception as e:
-                                logging.error(f"Ошибка отправки вопроса участнику {participant['user_id']}: {e}")
+                    # Отправляем вопрос остальным участникам (только тем, кто не выбыл)
+                    active_participants = [p for p in participants if not p['is_bride'] and not p['is_out']]
+                    for participant in active_participants:
+                        try:
+                            await bot.send_message(
+                                participant['user_id'],
+                                f"❓ <b>Вопрос от жениха:</b>\n{message.text}\n\n📝 Отправьте свой ответ."
+                            )
+                        except Exception as e:
+                            logging.error(f"Ошибка отправки вопроса участнику {participant['user_id']}: {e}")
 
                     return
 
