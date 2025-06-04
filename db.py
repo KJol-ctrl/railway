@@ -76,7 +76,7 @@ class Database:
             # Таблица для активных викторин
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS active_quizzes (
-                    quiz_id INTEGER PRIMARY KEY,
+                    quiz_id BIGINT PRIMARY KEY,
                     chat_id BIGINT NOT NULL,
                     question TEXT NOT NULL,
                     answers TEXT NOT NULL,
@@ -90,7 +90,7 @@ class Database:
             # Таблица для ответов участников викторин
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS quiz_participants (
-                    quiz_id INTEGER,
+                    quiz_id BIGINT,
                     user_id BIGINT,
                     answer_index INTEGER NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -161,7 +161,7 @@ class Database:
             # Таблица для игр "Жених"
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bride_games (
-                    game_id SERIAL PRIMARY KEY,
+                    game_id BIGSERIAL PRIMARY KEY,
                     group_id BIGINT NOT NULL,
                     creator_id BIGINT NOT NULL,
                     status TEXT NOT NULL,
@@ -175,7 +175,7 @@ class Database:
             # Таблица участников игры "Жених"
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bride_participants (
-                    game_id INTEGER REFERENCES bride_games(game_id) ON DELETE CASCADE,
+                    game_id BIGINT REFERENCES bride_games(game_id) ON DELETE CASCADE,
                     user_id BIGINT NOT NULL,
                     number INTEGER,
                     is_out BOOLEAN DEFAULT FALSE,
@@ -187,18 +187,28 @@ class Database:
             # Таблица раундов игры "Жених"
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bride_rounds (
-                    round_id SERIAL PRIMARY KEY,
-                    game_id INTEGER REFERENCES bride_games(game_id) ON DELETE CASCADE,
+                    round_id BIGSERIAL PRIMARY KEY,
+                    game_id BIGINT REFERENCES bride_games(game_id) ON DELETE CASCADE,
                     round_number INTEGER NOT NULL,
                     question TEXT,
                     voted_out BIGINT
                 );
             """)
+            
+            # Обновляем тип поля voted_out если таблица уже существует
+            try:
+                await conn.execute("""
+                    ALTER TABLE bride_rounds 
+                    ALTER COLUMN voted_out TYPE BIGINT
+                """)
+            except Exception:
+                # Игнорируем ошибку если поле уже BIGINT
+                pass
 
             # Таблица ответов в игре "Жених"
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bride_answers (
-                    round_id INTEGER REFERENCES bride_rounds(round_id) ON DELETE CASCADE,
+                    round_id BIGINT REFERENCES bride_rounds(round_id) ON DELETE CASCADE,
                     user_id BIGINT NOT NULL,
                     answer TEXT NOT NULL,
                     PRIMARY KEY (round_id, user_id)
@@ -214,6 +224,19 @@ class Database:
                     PRIMARY KEY (user_id)
                 );
             """)
+            
+            # Обновляем существующие таблицы для совместимости
+            try:
+                await conn.execute("ALTER TABLE active_quizzes ALTER COLUMN quiz_id TYPE BIGINT")
+                await conn.execute("ALTER TABLE quiz_participants ALTER COLUMN quiz_id TYPE BIGINT")
+                await conn.execute("ALTER TABLE bride_games ALTER COLUMN game_id TYPE BIGINT")
+                await conn.execute("ALTER TABLE bride_participants ALTER COLUMN game_id TYPE BIGINT")
+                await conn.execute("ALTER TABLE bride_rounds ALTER COLUMN round_id TYPE BIGINT")
+                await conn.execute("ALTER TABLE bride_rounds ALTER COLUMN game_id TYPE BIGINT")
+                await conn.execute("ALTER TABLE bride_answers ALTER COLUMN round_id TYPE BIGINT")
+            except Exception:
+                # Игнорируем ошибки если типы уже правильные
+                pass
 
             logging.info("Таблицы созданы успешно")
 
@@ -308,7 +331,7 @@ class Database:
         async with self.pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO active_quizzes (quiz_id, chat_id, question, answers, correct_indices, creator_id)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                VALUES ($1::BIGINT, $2::BIGINT, $3, $4, $5, $6::BIGINT)
                 ON CONFLICT (quiz_id) 
                 DO UPDATE SET 
                     question = EXCLUDED.question,
@@ -373,7 +396,7 @@ class Database:
         async with self.pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO quiz_participants (quiz_id, user_id, answer_index)
-                VALUES ($1, $2, $3)
+                VALUES ($1::BIGINT, $2::BIGINT, $3)
                 ON CONFLICT (quiz_id, user_id) 
                 DO UPDATE SET answer_index = EXCLUDED.answer_index;
             """, quiz_id, user_id, answer_index)
@@ -422,7 +445,7 @@ class Database:
         async with self.pool.acquire() as conn:
             game_id = await conn.fetchval("""
                 INSERT INTO bride_games (group_id, creator_id, status)
-                VALUES ($1, $2, 'waiting')
+                VALUES ($1::BIGINT, $2::BIGINT, 'waiting')
                 RETURNING game_id
             """, group_id, creator_id)
             return game_id
@@ -465,7 +488,7 @@ class Database:
         async with self.pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO bride_participants (game_id, user_id, number, is_bride)
-                VALUES ($1, $2::BIGINT, $3, $4)
+                VALUES ($1::BIGINT, $2::BIGINT, $3, $4)
             """, game_id, user_id, number, is_bride)
 
     async def get_bride_rounds(self, game_id: int) -> List[Dict]:
@@ -508,7 +531,7 @@ class Database:
         async with self.pool.acquire() as conn:
             round_id = await conn.fetchval("""
                 INSERT INTO bride_rounds (game_id, round_number, question)
-                VALUES ($1, $2, $3)
+                VALUES ($1::BIGINT, $2, $3)
                 RETURNING round_id
             """, game_id, round_number, question)
             return round_id
@@ -518,7 +541,7 @@ class Database:
         async with self.pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO bride_answers (round_id, user_id, answer)
-                VALUES ($1, $2, $3)
+                VALUES ($1::BIGINT, $2::BIGINT, $3)
                 ON CONFLICT (round_id, user_id)
                 DO UPDATE SET answer = EXCLUDED.answer
             """, round_id, user_id, answer)
@@ -544,13 +567,13 @@ class Database:
             await conn.execute("""
                 UPDATE bride_participants 
                 SET is_out = TRUE
-                WHERE game_id = $1 AND user_id = $2
+                WHERE game_id = $1::BIGINT AND user_id = $2::BIGINT
             """, game_id, user_id)
 
             await conn.execute("""
                 UPDATE bride_rounds 
-                SET voted_out = $2
-                WHERE round_id = $1
+                SET voted_out = $2::BIGINT
+                WHERE round_id = $1::BIGINT
             """, round_id, user_id)
 
     async def finish_bride_game(self, game_id: int):
