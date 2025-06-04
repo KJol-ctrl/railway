@@ -538,16 +538,18 @@ class Database:
     async def vote_out_participant(self, game_id: int, user_id: int, round_id: int):
         """Исключение участника из игры"""
         async with self.pool.acquire() as conn:
-            # Явно приводим user_id к типу BIGINT
+            # Преобразуем user_id в int, если он передается как строка
+            user_id = int(user_id) if isinstance(user_id, str) else user_id
+            
             await conn.execute("""
                 UPDATE bride_participants 
                 SET is_out = TRUE
-                WHERE game_id = $1 AND user_id = $2::BIGINT
+                WHERE game_id = $1 AND user_id = $2
             """, game_id, user_id)
 
             await conn.execute("""
                 UPDATE bride_rounds 
-                SET voted_out = $2::BIGINT
+                SET voted_out = $2
                 WHERE round_id = $1
             """, round_id, user_id)
 
