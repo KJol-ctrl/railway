@@ -1114,6 +1114,10 @@ bride_game_messages = {}
 
 @dp.message(lambda m: m.text and m.text.lower() == "начать жених" and m.from_user.id in ADMIN_IDS)
 async def start_bride_game_announcement(message: types.Message, state: FSMContext):
+    if not db.pool:
+        await message.reply("Ошибка подключения к базе данных.")
+        return
+        
     session = await db.get_active_bride_session()
     if session:
         await message.reply("Игра уже запущена. Сначала завершите текущую.")
@@ -1383,9 +1387,14 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
 
                                 # Находим участника для исключения
                                 participant_to_exclude = next(p for p in non_bride_participants if p['number'] == choice)
+                                
+                                # Убеждаемся что user_id правильного типа
+                                exclude_user_id = int(participant_to_exclude['user_id'])
+                                round_id = int(current_round['round_id'])
+                                game_id = int(active_game['game_id'])
 
                                 # Исключаем участника
-                                await db.vote_out_participant(active_game['game_id'], participant_to_exclude['user_id'], current_round['round_id'])
+                                await db.vote_out_participant(game_id, exclude_user_id, round_id)
 
                                 # Отправляем сообщение в группу
                                 await bot.send_message(GROUP_ID, f"Жених выбрал {choice}")
