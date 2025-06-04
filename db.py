@@ -205,6 +205,16 @@ class Database:
                 );
             """)
 
+            # Таблица для отслеживания кто уже был женихом
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bride_history (
+                    user_id BIGINT NOT NULL,
+                    was_bride_count INTEGER DEFAULT 0,
+                    last_bride_game TIMESTAMP,
+                    PRIMARY KEY (user_id)
+                );
+            """)
+
             logging.info("Таблицы созданы успешно")
 
     async def close(self):
@@ -680,7 +690,7 @@ class Database:
         async with self.pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO active_applications (user_id, role)
-                VALUES ($1, $2)
+                VALUES ($1::BIGINT, $2)
                 ON CONFLICT (user_id) 
                 DO UPDATE SET role = EXCLUDED.role, 
                              created_at = CURRENT_TIMESTAMP,
@@ -692,7 +702,7 @@ class Database:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow("""
                 SELECT * FROM active_applications 
-                WHERE user_id = $1 AND expires_at > CURRENT_TIMESTAMP
+                WHERE user_id = $1::BIGINT AND expires_at > CURRENT_TIMESTAMP
             """, user_id)
             return dict(row) if row else None
 
@@ -702,14 +712,14 @@ class Database:
             await conn.execute("""
                 UPDATE active_applications 
                 SET role = $2
-                WHERE user_id = $1
+                WHERE user_id = $1::BIGINT
             """, user_id, new_role)
 
     async def delete_application(self, user_id: int):
         """Удаление заявки"""
         async with self.pool.acquire() as conn:
             await conn.execute("""
-                DELETE FROM active_applications WHERE user_id = $1
+                DELETE FROM active_applications WHERE user_id = $1::BIGINT
             """, user_id)
 
     async def cleanup_expired_applications(self):
@@ -720,21 +730,81 @@ class Database:
                 WHERE expires_at <= CURRENT_TIMESTAMP
             """)
 
-    async def save_application(self, user_id: int, role: str):
-        """Сохранение заявки пользователя (алиас для save_application)"""
-        await self.save_application_internal(user_id, role)
-
     async def save_application_internal(self, user_id: int, role: str):
         """Внутренний метод сохранения заявки"""
         async with self.pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO active_applications (user_id, role)
-                VALUES ($1, $2)
+                VALUES ($1::BIGINT, $2)
                 ON CONFLICT (user_id) 
                 DO UPDATE SET role = EXCLUDED.role, 
                              created_at = CURRENT_TIMESTAMP,
                              expires_at = CURRENT_TIMESTAMP + INTERVAL '5 days'
             """, user_id, role)
+
+    async def get_bride_history(self, user_id: int) -> Optional[Dict]:
+        """Получение истории пользователя как жениха"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT * FROM bride_history WHERE user_id = $1::BIGINT
+            """, user_id)
+            return dict(row) if row else None
+
+    async def update_bride_history(self, user_id: int):
+        """Обновление информации о том, что пользователь был женихом"""
+        async with self.pool.acquire() as conn:
+            existing_history = await self.get_bride_history(user_id)
+            if existing_history:
+                await conn.execute("""
+                    UPDATE bride_history
+                    SET was_bride_count = was_bride_count + 1,
+                        last_bride_game = CURRENT_TIMESTAMP
+                    WHERE user_id = $1::BIGINT
+                """, user_id)
+            else:
+                await conn.execute("""
+                    INSERT INTO bride_history (user_id, was_bride_count, last_bride_game)
+                    VALUES ($1::BIGINT, 1, CURRENT_TIMESTAMP)
+                """, user_id)
+
+    async def can_be_bride(self, user_id: int) -> bool:
+        """Проверка, может ли пользователь быть женихом"""
+        history = await self.get_bride_history(user_id)
+        if history:
+            # Пользователь уже был женихом, проверяем условие
+            return history['was_bride_count'] <= 1
+        else:
+            # Пользователь еще не был женихом
+            return True
+
+    async def get_eligible_bride_candidates(self, participants_ids: list) -> list:
+        """Получение списка подходящих кандидатов в женихи"""
+        eligible = []
+        for user_id in participants_ids:
+            if await self.can_be_bride(user_id):
+                eligible.append(user_id)
+        
+        # Если все уже были женихами, возвращаем всех участников
+        if not eligible:
+            # Сбрасываем счетчики для всех участников
+            for user_id in participants_ids:
+                await self.reset_bride_status(user_id)
+            eligible = participants_ids
+        
+        return eligible
+
+    async def mark_as_bride(self, user_id: int):
+        """Отмечает пользователя как бывшего жениха"""
+        await self.update_bride_history(user_id)
+
+    async def reset_bride_status(self, user_id: int):
+        """Сбрасывает статус жениха для пользователя"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE bride_history
+                SET was_bride_count = 0
+                WHERE user_id = $1::BIGINT
+            """, user_id)
 
 # Глобальный экземпляр базы данных
 db = Database()
