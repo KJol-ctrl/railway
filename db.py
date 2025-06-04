@@ -806,5 +806,25 @@ class Database:
                 WHERE user_id = $1::BIGINT
             """, user_id)
 
+    async def get_eligible_bride_candidates(self, participants_ids: list) -> list:
+        """Получение списка подходящих кандидатов в женихи"""
+        eligible = []
+        for user_id in participants_ids:
+            if await self.can_be_bride(user_id):
+                eligible.append(user_id)
+        
+        # Если все уже были женихами, возвращаем всех участников
+        if not eligible:
+            # Сбрасываем счетчики для всех участников
+            for user_id in participants_ids:
+                await self.reset_bride_status(user_id)
+            eligible = participants_ids
+        
+        return eligible
+
+    async def mark_as_bride(self, user_id: int):
+        """Отмечает пользователя как бывшего жениха"""
+        await self.update_bride_history(user_id)
+
 # Глобальный экземпляр базы данных
 db = Database()
