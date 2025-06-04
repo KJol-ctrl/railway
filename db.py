@@ -191,7 +191,7 @@ class Database:
                     game_id INTEGER REFERENCES bride_games(game_id) ON DELETE CASCADE,
                     round_number INTEGER NOT NULL,
                     question TEXT,
-                    voted_out INTEGER
+                    voted_out BIGINT
                 );
             """)
 
