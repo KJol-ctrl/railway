@@ -224,6 +224,28 @@ class Database:
                     PRIMARY KEY (user_id)
                 );
             """)
+
+            # Таблица для закрепленных сообщений игры
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bride_pinned_messages (
+                    game_id BIGINT NOT NULL,
+                    round_id BIGINT,
+                    message_id BIGINT NOT NULL,
+                    message_type TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (game_id, round_id, message_type)
+                );
+            """)
+
+            # Таблица для статусных сообщений раундов
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bride_round_status (
+                    round_id BIGINT PRIMARY KEY,
+                    creator_id BIGINT NOT NULL,
+                    message_id BIGINT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
             
             # Обновляем существующие таблицы для совместимости
             try:
@@ -830,6 +852,71 @@ class Database:
                 SET was_bride_count = 0
                 WHERE user_id = $1::BIGINT
             """, user_id)
+
+    async def save_pinned_message(self, game_id: int, round_id: int, message_id: int, message_type: str):
+        """Сохранение информации о закрепленном сообщении"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO bride_pinned_messages (game_id, round_id, message_id, message_type)
+                VALUES ($1::BIGINT, $2::BIGINT, $3::BIGINT, $4)
+                ON CONFLICT (game_id, round_id, message_type)
+                DO UPDATE SET message_id = EXCLUDED.message_id
+            """, game_id, round_id, message_id, message_type)
+
+    async def get_pinned_message(self, round_id: int, message_type: str) -> int:
+        """Получение ID закрепленного сообщения"""
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval("""
+                SELECT message_id FROM bride_pinned_messages
+                WHERE round_id = $1::BIGINT AND message_type = $2
+            """, round_id, message_type)
+
+    async def unpin_all_game_messages(self, game_id: int):
+        """Открепление всех сообщений игры"""
+        async with self.pool.acquire() as conn:
+            message_ids = await conn.fetch("""
+                SELECT message_id FROM bride_pinned_messages
+                WHERE game_id = $1::BIGINT
+            """, game_id)
+            
+            # Импортируем bot из main.py для открепления
+            from main import bot, GROUP_ID
+            
+            for row in message_ids:
+                try:
+                    await bot.unpin_chat_message(GROUP_ID, row['message_id'])
+                except Exception as e:
+                    logging.error(f"Ошибка открепления сообщения {row['message_id']}: {e}")
+            
+            # Удаляем записи о закрепленных сообщениях
+            await conn.execute("""
+                DELETE FROM bride_pinned_messages WHERE game_id = $1::BIGINT
+            """, game_id)
+
+    async def save_round_status_message(self, round_id: int, creator_id: int, message_id: int):
+        """Сохранение ID сообщения со статусом ответов"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO bride_round_status (round_id, creator_id, message_id)
+                VALUES ($1::BIGINT, $2::BIGINT, $3::BIGINT)
+                ON CONFLICT (round_id) 
+                DO UPDATE SET message_id = EXCLUDED.message_id
+            """, round_id, creator_id, message_id)
+
+    async def get_round_status_message(self, round_id: int) -> Optional[Dict]:
+        """Получение информации о сообщении со статусом ответов"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT * FROM bride_round_status WHERE round_id = $1::BIGINT
+            """, round_id)
+            return dict(row) if row else None
+
+    async def delete_round_status_message(self, round_id: int):
+        """Удаление записи о сообщении со статусом ответов"""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                DELETE FROM bride_round_status WHERE round_id = $1::BIGINT
+            """, round_id)
 
     async def get_eligible_bride_candidates(self, participants_ids: list) -> list:
         """Получение списка подходящих кандидатов в женихи"""
