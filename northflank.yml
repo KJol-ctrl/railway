@@ -11,7 +11,7 @@ services:
       cpu: 300m
     env:
       - key: BOT_TOKEN
-        value: "вставь_сюда"
+        value: "вставь"
       - key: ADMIN_IDS
         value: "вставь"
       - key: GROUP_ID
@@ -25,4 +25,6 @@ services:
       - key: LIST_ADMIN_ID
         value: "вставь"
       - key: DATABASE_URL
-        value: "вставь_database_url"
+        value: "вставь"
+      - key: GROQ_API_KEY
+        value: "вставь"
