@@ -1511,21 +1511,22 @@ async def launch_bride_game(message: types.Message, state: FSMContext):
         bride_user = await bot.get_chat(bride_id)
         creator_list += f"Жених: {bride_user.full_name}\n\n"
 
-        # Добавляем участников с номерами
+        # Добавляем участников с номерами в случайном порядке
         numbered_participants = [
             p for p in participants if not p['is_bride'] and p['number']
         ]
-        numbered_participants.sort(key=lambda x: x['number'])
+        # Перемешиваем список участников случайным образом
+        random.shuffle(numbered_participants)
 
         for participant in numbered_participants:
             try:
                 participant_user = await bot.get_chat(participant['user_id'])
-                creator_list += f"{participant['number']} - {participant_user.full_name}\n"
+                creator_list += f"{participant_user.full_name}\n"
             except Exception as e:
                 logging.error(
                     f"Ошибка получения информации об участнике {participant['user_id']}: {e}"
                 )
-                creator_list += f"{participant['number']} - ID: {participant['user_id']}\n"
+                creator_list += f"ID: {participant['user_id']}\n"
 
         # Отправляем список создателю игры
         await bot.send_message(message.from_user.id, creator_list.strip())
@@ -1729,6 +1730,29 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                 (p for p in participants if p['user_id'] == user_id), None)
 
             if user_participant:
+                # Проверяем, если это ответ на сообщение бота
+                if message.reply_to_message and message.reply_to_message.from_user.is_bot:
+                    reply_text = message.reply_to_message.text or ""
+                    
+                    # Если жених отвечает на запрос написать вопрос
+                    if user_participant['is_bride'] and any(phrase in reply_text for phrase in [
+                        "Напишите первый вопрос", "Отправьте следующий вопрос", 
+                        "напишите первый вопрос", "отправьте следующий вопрос"
+                    ]):
+                        # Обрабатываем как новый вопрос (код ниже)
+                        pass
+                    # Если участник отвечает на вопрос
+                    elif not user_participant['is_bride'] and any(phrase in reply_text for phrase in [
+                        "Вопрос от жениха", "Отправьте свой ответ", "вопрос от жениха", "отправьте свой ответ"
+                    ]):
+                        # Обрабатываем как ответ на вопрос (код ниже)
+                        pass
+                    # Если жених отвечает на запрос выбрать участника
+                    elif user_participant['is_bride'] and any(phrase in reply_text for phrase in [
+                        "Напишите число того участника", "напишите число того участника"
+                    ]):
+                        # Обрабатываем как выбор для исключения (код ниже)
+                        pass
                 # Если это жених и игра ожидает вопрос или новый вопрос
                 if user_participant['is_bride']:
                     # Проверяем, не ждет ли игра выбора для исключения
@@ -2150,10 +2174,13 @@ async def send_status_message_to_creator(game_id: int, round_id: int):
         # Формируем начальное сообщение
         status_text = f"Жених {bride_user.full_name} - ответил\n"
 
-        # Добавляем участников
+        # Добавляем участников в случайном порядке
         active_participants = [
             p for p in participants if not p['is_bride'] and not p['is_out']
         ]
+        # Перемешиваем список участников случайным образом
+        random.shuffle(active_participants)
+        
         for participant in active_participants:
             try:
                 participant_user = await bot.get_chat(participant['user_id'])
@@ -2214,10 +2241,13 @@ async def update_status_message_for_creator(game_id: int, round_id: int):
         # Формируем обновленное сообщение
         status_text = f"Жених {bride_user.full_name} - ответил\n"
 
-        # Добавляем участников с их статусом
+        # Добавляем участников с их статусом в случайном порядке
         active_participants = [
             p for p in participants if not p['is_bride'] and not p['is_out']
         ]
+        # Перемешиваем список участников случайным образом
+        random.shuffle(active_participants)
+        
         for participant in active_participants:
             try:
                 participant_user = await bot.get_chat(participant['user_id'])
