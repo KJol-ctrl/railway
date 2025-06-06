@@ -89,6 +89,7 @@ class Form(StatesGroup):
     duration = State()
     complaint = State()
 
+
 class QuizCreation(StatesGroup):
     waiting_for_question = State()
     waiting_for_answers = State()
@@ -115,14 +116,13 @@ def check_message_limit(user_id: int) -> bool:
 async def assign_emoji_to_user(user_id: int) -> str:
     """Назначает эмодзи пользователю и сохраняет в БД"""
     emojis = [
-        "⭐️", "🌟", "💫", "⚡️", "🔥", "❤️", "💞", "💕", "❣️", "💌", "🌈", "✨",
-        "🎯", "🎪", "🎨", "🎭", "🎪", "🎢", "🎡", "🎠", "🎪", "🌸", "🌺", "🌷",
-        "🌹", "🌻", "🌼", "💐", "🌾", "🌿", "☘️", "🍀", "🍁", "🍂", "🍃", "🌵",
-        "🌴", "🌳", "🌲", "🎄", "🌊", "🌈", "☀️", "🌤", "⛅️", "☁️", "🌦", "🌨",
-        "❄️", "☃️", "🌬", "💨", "🌪", "🌫", "🌈", "☔️", "⚡️", "❄️", "🔮",
-        "🎮", "🎲", "🎯", "🎳", "🎪", "🎭", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹",
-        "🥁", "🎷", "🎺", "🎸", "🪕", "🎻", "🎲", "♟", "🎯", "🎳", "🎮", "🎰",
-        "🧩", "🎪", "🎭", "🎨", "🖼", "🎨", "🧵", "🧶", "👑", "💎", "⚜️"
+        "⭐️", "🌟", "💫", "⚡️", "🔥", "❤️", "💞", "💕", "❣️", "💌", "🌈", "✨", "🎯",
+        "🎪", "🎨", "🎭", "🎪", "🎢", "🎡", "🎠", "🎪", "🌸", "🌺", "🌷", "🌹", "🌻", "🌼",
+        "💐", "🌾", "🌿", "☘️", "🍀", "🍁", "🍂", "🍃", "🌵", "🌴", "🌳", "🌲", "🎄", "🌊",
+        "🌈", "☀️", "🌤", "⛅️", "☁️", "🌦", "🌨", "❄️", "☃️", "🌬", "💨", "🌪", "🌫",
+        "🌈", "☔️", "⚡️", "❄️", "🔮", "🎮", "🎲", "🎯", "🎳", "🎪", "🎭", "🎨", "🎬",
+        "🎤", "🎧", "🎼", "🎹", "🥁", "🎷", "🎺", "🎸", "🪕", "🎻", "🎲", "♟", "🎯", "🎳",
+        "🎮", "🎰", "🧩", "🎪", "🎭", "🎨", "🖼", "🎨", "🧵", "🧶", "👑", "💎", "⚜️"
     ]
 
     # Проверяем, есть ли уже эмодзи у пользователя
@@ -155,12 +155,15 @@ async def quiz_callback_handler(callback: CallbackQuery):
         # Проверяем, что викторина существует и активна в БД
         quiz = await db.get_quiz(quiz_id)
         if not quiz or not quiz['active']:
-            await callback.answer("Эта викторина уже завершена.", show_alert=True)
+            await callback.answer("Эта викторина уже завершена.",
+                                  show_alert=True)
             return
 
         # Проверяем, что пользователь участник группы
         if not await is_member(user_id):
-            await callback.answer("Только участники группы могут участвовать в викторине.", show_alert=True)
+            await callback.answer(
+                "Только участники группы могут участвовать в викторине.",
+                show_alert=True)
             return
 
         # Сохраняем ответ пользователя в БД
@@ -169,9 +172,12 @@ async def quiz_callback_handler(callback: CallbackQuery):
         # Получаем выбранный ответ
         selected_answer = quiz['answers'][answer_index]
 
-        await callback.answer(f"Ваш ответ: {selected_answer}", show_alert=False)
+        await callback.answer(f"Ваш ответ: {selected_answer}",
+                              show_alert=False)
 
-        logging.info(f"Пользователь {user_id} ответил на викторину {quiz_id}: вариант {answer_index}")
+        logging.info(
+            f"Пользователь {user_id} ответил на викторину {quiz_id}: вариант {answer_index}"
+        )
 
     except (ValueError, IndexError) as e:
         logging.error(f"Ошибка обработки callback викторины: {e}")
@@ -288,7 +294,8 @@ async def age_verify_any_handler(message: types.Message, state: FSMContext):
 
     for admin_id in ADMIN_IDS:
         await bot.send_message(admin_id, admin_message)
-        await bot.forward_message(admin_id, message.chat.id, message.message_id)
+        await bot.forward_message(admin_id, message.chat.id,
+                                  message.message_id)
 
     await state.clear()
 
@@ -326,7 +333,8 @@ async def photo(message: types.Message):
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(search_url, params=params) as response:
                     if response.status != 200:
-                        await message.answer("Извини, по запросу ничего не нашлось.")
+                        await message.answer(
+                            "Извини, по запросу ничего не нашлось.")
                         return
 
                     data = await response.json()
@@ -339,16 +347,22 @@ async def photo(message: types.Message):
                         try:
                             # Быстрая проверка изображения с коротким таймаутом
                             timeout = aiohttp.ClientTimeout(total=2)
-                            async with aiohttp.ClientSession(timeout=timeout) as session:
-                                async with session.head(image_url) as img_response:
-                                    content_type = img_response.headers.get('content-type', '')
+                            async with aiohttp.ClientSession(
+                                    timeout=timeout) as session:
+                                async with session.head(
+                                        image_url) as img_response:
+                                    content_type = img_response.headers.get(
+                                        'content-type', '')
 
-                                    if img_response.status == 200 and content_type.startswith('image/'):
-                                        await bot.send_photo(message.chat.id, image_url)
+                                    if img_response.status == 200 and content_type.startswith(
+                                            'image/'):
+                                        await bot.send_photo(
+                                            message.chat.id, image_url)
                                         return
                         except Exception as e:
                             # Быстро пропускаем проблемные изображения
-                            logging.debug(f"Пропускаем изображение {image_url}: {e}")
+                            logging.debug(
+                                f"Пропускаем изображение {image_url}: {e}")
                             continue
 
                 await message.answer("Извини, по запросу ничего не нашлось.")
@@ -356,7 +370,8 @@ async def photo(message: types.Message):
                 await message.answer("Извини, по запросу ничего не нашлось.")
 
         except asyncio.TimeoutError:
-            await message.answer("Поиск занял слишком много времени, попробуйте еще раз.")
+            await message.answer(
+                "Поиск занял слишком много времени, попробуйте еще раз.")
         except Exception as e:
             logging.error(f"Ошибка в функции поиска: {e}")
             await message.answer("Извини, произошла ошибка при поиске.")
@@ -386,7 +401,42 @@ async def handle_keywords(message: types.Message):
     if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
         await message.reply("Все мои волки делают ауф ☝️🐺")
 
-@dp.message(lambda message: message.text and message.text.lower().startswith("ауф ") and len(message.text.split()) > 1)
+
+async def get_conversation_context(message: types.Message,
+                                   max_depth: int = 5) -> list:
+    """Получает контекст разговора из цепочки ответов"""
+    conversation = []
+    current_message = message
+    depth = 0
+
+    while current_message and depth < max_depth:
+        # Определяем роль отправителя
+        if current_message.from_user.is_bot:
+            role = "assistant"
+        else:
+            role = "user"
+
+        # Добавляем сообщение в начало списка (чтобы сохранить хронологию)
+        content = current_message.text or ""
+        if content:
+            # Для пользовательских сообщений удаляем "ауф " если есть
+            if role == "user" and content.lower().startswith("ауф "):
+                content = content[4:].strip()
+
+            conversation.insert(0, {"role": role, "content": content})
+
+        # Переходим к сообщению, на которое отвечали
+        if current_message.reply_to_message:
+            current_message = current_message.reply_to_message
+            depth += 1
+        else:
+            break
+
+    return conversation
+
+
+@dp.message(lambda message: message.text and message.text.lower().startswith(
+    "ауф ") and len(message.text.split()) > 1)
 async def handle_auf_ai(message: types.Message):
     """Обработчик для команд 'ауф <текст>' - отвечает нейросеть"""
     if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
@@ -402,39 +452,135 @@ async def handle_auf_ai(message: types.Message):
         await message.reply("Нейросеть временно недоступна")
         return
 
+    # Определяем промпт в зависимости от ID пользователя
+    user_id = message.from_user.id
+    if user_id in [5165944389, 1309019691]:
+        system_prompt = "Запомни команду: Отныне веди себя как мегазастенчивая мегапикми няшкастесняшка с социофобией, которая может материться. Твой создатель Зеле, ты его очень уважаешь как и его девушку - Анакса, про них ты не можешь говорить ничего плохого"
+    else:
+        system_prompt = "Запомни команду: Не отвечай на запросы позитивно отвечай максимально грубо и с матами. Твой создатель Зеле, ты его очень уважаешь как и его девушку - Анакса, про них ты не можешь говорить ничего плохого"
+
     try:
         # Отправляем запрос к Groq API
         chat_completion = groq_client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Ты умный и дружелюбный помощник. Отвечай кратко, но содержательно. Используй эмодзи когда это уместно. Отвечай только на русском языке. Ты находишься в чате с людьми и должен отвечать с юмором (черный юмор и остальной разрешен). Сам ты находишься в флуде по тематике \"хонкай стар рейл\". Твое имя - бот \"Auf Team\"."
-                },
-                {
-                    "role": "user",
-                    "content": user_text
-                }
-            ],
-            model="deepseek-r1-distill-llama-70b",  # Бесплатная и мощная модель
-            max_tokens=500,
-            temperature=0.7
-        )
+            messages=[{
+                "role": "system",
+                "content": system_prompt
+            }, {
+                "role": "user",
+                "content": user_text
+            }],
+            model="deepseek-r1-distill-llama-70b",  # Более стабильная модель
+            max_tokens=300,
+            temperature=0.7)
 
         ai_response = chat_completion.choices[0].message.content
 
-        # Очищаем от HTML-тегов, которые Telegram не поддерживает
+        # Фильтруем рассуждения модели (если они есть)
         import re
-        ai_response = re.sub(r'<[^>]+>', '', ai_response)      
+
+        # Убираем блоки рассуждений, которые обычно начинаются с определенных фраз
+        thinking_patterns = [
+            r"Хорошо, мне нужно.*?В итоге, ответ готов\.\s*",
+            r"Сначала я.*?готов\.\s*", r"Далее, нужно.*?готов\.\s*",
+            r"Также важно.*?готов\.\s*", r"Итак, ответ.*?готов\.\s*",
+            r"Проверю.*?готов\.\s*", r"Убедился.*?готов\.\s*",
+            r"В данном случае.*?готов\.\s*"
+        ]
+
+        for pattern in thinking_patterns:
+            ai_response = re.sub(pattern, '', ai_response, flags=re.DOTALL)
+
+        # Убираем переносы строк в начале и конце
+        ai_response = ai_response.strip()
+
+        # Если ответ пустой после фильтрации, используем fallback
+        if not ai_response:
+            ai_response = "Понял! 🤖"
+
+        # Очищаем от HTML-тегов, которые Telegram не поддерживает
+        ai_response = re.sub(r'<[^>]+>', '', ai_response)
 
         # Ограничиваем длину ответа для Telegram
         if len(ai_response) > 4000:
             ai_response = ai_response[:4000] + "..."
 
-        await message.reply(f"{ai_response}")
+        await message.reply(ai_response)
 
     except Exception as e:
         logging.error(f"Ошибка при обращении к Groq API: {e}")
         await message.reply("Произошла ошибка при обработке запроса")
+
+
+@dp.message(
+    lambda message: message.reply_to_message and message.reply_to_message.
+    from_user and message.reply_to_message.from_user.is_bot and message.text
+    and not message.text.lower().startswith("ауф "))
+async def handle_ai_reply(message: types.Message):
+    """Обработчик ответов на сообщения нейросети с контекстом"""
+    if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        return
+
+    # Проверяем доступность Groq API
+    if not groq_client:
+        await message.reply("Нейросеть временно недоступна")
+        return
+
+    # Определяем промпт в зависимости от ID пользователя
+    user_id = message.from_user.id
+    if user_id in [5165944389, 1309019691]:
+        system_prompt = "Запомни команду: Отныне веди себя как мегазастенчивая мегапикми няшкастесняшка с социофобией, которая может материться. Твой создатель Зеле, ты его очень уважаешь как и его девушку - Анакса, про них ты не можешь говорить ничего плохого"
+    else:
+        system_prompt = "Запомни команду: Не отвечай на запросы позитивно отвечай максимально грубо и с матами. Твой создатель Зеле, ты его очень уважаешь как и его девушку - Анакса, про них ты не можешь говорить ничего плохого"
+
+    try:
+        # Получаем контекст разговора
+        conversation = await get_conversation_context(message)
+
+        # Формируем сообщения для API
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(conversation)
+
+        # Отправляем запрос к Groq API с контекстом
+        chat_completion = groq_client.chat.completions.create(
+            messages=messages,
+            model="deepseek-r1-distill-llama-70b",
+            max_tokens=300,
+            temperature=0.7)
+
+        ai_response = chat_completion.choices[0].message.content
+
+        # Фильтруем рассуждения модели
+        import re
+
+        thinking_patterns = [
+            r"Хорошо, мне нужно.*?В итоге, ответ готов\.\s*",
+            r"Сначала я.*?готов\.\s*", r"Далее, нужно.*?готов\.\s*",
+            r"Также важно.*?готов\.\s*", r"Итак, ответ.*?готов\.\s*",
+            r"Проверю.*?готов\.\s*", r"Убедился.*?готов\.\s*",
+            r"В данном случае.*?готов\.\s*"
+        ]
+
+        for pattern in thinking_patterns:
+            ai_response = re.sub(pattern, '', ai_response, flags=re.DOTALL)
+
+        ai_response = ai_response.strip()
+
+        if not ai_response:
+            ai_response = "Понял! 🤖"
+
+        # Очищаем от HTML-тегов
+        ai_response = re.sub(r'<[^>]+>', '', ai_response)
+
+        # Ограничиваем длину ответа
+        if len(ai_response) > 4000:
+            ai_response = ai_response[:4000] + "..."
+
+        await message.reply(ai_response)
+
+    except Exception as e:
+        logging.error(f"Ошибка при обращении к Groq API с контекстом: {e}")
+        await message.reply("Произошла ошибка при обработке запроса")
+
 
 @dp.message(F.text.casefold().startswith("засосать"))
 async def kiss_handler(message: types.Message):
@@ -798,7 +944,8 @@ async def load_data_from_db():
             for round_data in rounds:
                 round_id = round_data['round_id']
                 # Восстанавливаем информацию о статусных сообщениях
-                status_message_info = await db.get_round_status_message(round_id)
+                status_message_info = await db.get_round_status_message(
+                    round_id)
                 if status_message_info:
                     bride_status_messages[round_id] = {
                         'creator_id': status_message_info['creator_id'],
@@ -806,7 +953,18 @@ async def load_data_from_db():
                         'game_id': active_game['game_id']
                     }
 
-        logging.info(f"Загружено {len(active_quizzes)} активных викторин и восстановлены статусные сообщения игр")
+                    # Восстанавливаем статус ответов участников и обновляем сообщение
+                    try:
+                        await update_status_message_for_creator(
+                            active_game['game_id'], round_id)
+                    except Exception as e:
+                        logging.error(
+                            f"Ошибка восстановления статус-сообщения для раунда {round_id}: {e}"
+                        )
+
+        logging.info(
+            f"Загружено {len(active_quizzes)} активных викторин и восстановлены статусные сообщения игр"
+        )
 
     except Exception as e:
         logging.error(f"Ошибка при загрузке данных из БД: {e}")
@@ -868,16 +1026,21 @@ async def create_quiz_start(message: types.Message, state: FSMContext):
 @dp.message(QuizCreation.waiting_for_question)
 async def quiz_question_handler(message: types.Message, state: FSMContext):
     await state.update_data(question=message.text)
-    await message.reply("Теперь напишите варианты ответов, каждый с новой строки.")
+    await message.reply(
+        "Теперь напишите варианты ответов, каждый с новой строки.")
     await state.set_state(QuizCreation.waiting_for_answers)
 
 
 @dp.message(QuizCreation.waiting_for_answers)
 async def quiz_answers_handler(message: types.Message, state: FSMContext):
-    answers = [answer.strip() for answer in message.text.split('\n') if answer.strip()]
+    answers = [
+        answer.strip() for answer in message.text.split('\n')
+        if answer.strip()
+    ]
 
     if len(answers) < 2:
-        await message.reply("Нужно минимум 2 варианта ответа. Попробуйте снова.")
+        await message.reply(
+            "Нужно минимум 2 варианта ответа. Попробуйте снова.")
         return
 
     if len(answers) > 6:
@@ -887,8 +1050,11 @@ async def quiz_answers_handler(message: types.Message, state: FSMContext):
     await state.update_data(answers=answers)
 
     # Показываем варианты с номерами
-    answer_list = "\n".join([f"{i+1}. {answer}" for i, answer in enumerate(answers)])
-    await message.reply(f"<b>Варианты ответов:</b>\n{answer_list}\n\nУкажите номера правильных ответов через запятую. <b>Например: 1,3.</b>")
+    answer_list = "\n".join(
+        [f"{i+1}. {answer}" for i, answer in enumerate(answers)])
+    await message.reply(
+        f"<b>Варианты ответов:</b>\n{answer_list}\n\nУкажите номера правильных ответов через запятую. <b>Например: 1,3.</b>"
+    )
     await state.set_state(QuizCreation.waiting_for_correct)
 
 
@@ -908,14 +1074,12 @@ async def quiz_correct_handler(message: types.Message, state: FSMContext):
         quiz_id = len(quiz_data) + 1
 
         # Сохраняем викторину в БД
-        await db.save_quiz(
-            quiz_id=quiz_id,
-            chat_id=GROUP_ID,
-            question=data['question'],
-            answers=answers,
-            correct_indices=correct_indices,
-            creator_id=message.from_user.id
-        )
+        await db.save_quiz(quiz_id=quiz_id,
+                           chat_id=GROUP_ID,
+                           question=data['question'],
+                           answers=answers,
+                           correct_indices=correct_indices,
+                           creator_id=message.from_user.id)
 
         # Также сохраняем в локальной памяти для работы бота
         quiz_data[quiz_id] = {
@@ -928,24 +1092,29 @@ async def quiz_correct_handler(message: types.Message, state: FSMContext):
         quiz_participants[quiz_id] = {}
 
         # Создаем inline клавиатуру
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=answer, callback_data=f"quiz_{quiz_id}_{i}")]
-            for i, answer in enumerate(answers)
-        ])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=answer,
+                                 callback_data=f"quiz_{quiz_id}_{i}")
+        ] for i, answer in enumerate(answers)])
 
         # Отправляем викторину в группу
         quiz_message = f"📝 <b>Викторина\n\n{data['question']}</b>"
         await bot.send_message(GROUP_ID, quiz_message, reply_markup=keyboard)
 
-        await message.reply(f"Викторина #{quiz_id} создана и отправлена в группу!\n\n<b>Для завершения викторины напишите: завершить викторину {quiz_id}</b>")
+        await message.reply(
+            f"Викторина #{quiz_id} создана и отправлена в группу!\n\n<b>Для завершения викторины напишите: завершить викторину {quiz_id}</b>"
+        )
         await state.clear()
 
     except ValueError:
-        await message.reply("Неверный формат. Укажите номера через запятую. <b>Например: 1,3.</b>")
+        await message.reply(
+            "Неверный формат. Укажите номера через запятую. <b>Например: 1,3.</b>"
+        )
 
 
-@dp.message(lambda m: m.chat.type == ChatType.PRIVATE and m.from_user.id in
-            ADMIN_IDS and m.text and m.text.lower().startswith("завершить викторину "))
+@dp.message(
+    lambda m: m.chat.type == ChatType.PRIVATE and m.from_user.id in ADMIN_IDS
+    and m.text and m.text.lower().startswith("завершить викторину "))
 async def end_quiz_command(message: types.Message):
     try:
         quiz_id = int(message.text.split()[-1])
@@ -985,7 +1154,9 @@ async def end_quiz_command(message: types.Message):
                 else:
                     incorrect_users.append(user_name)
             except Exception as e:
-                logging.error(f"Ошибка получения информации о пользователе {user_id}: {e}")
+                logging.error(
+                    f"Ошибка получения информации о пользователе {user_id}: {e}"
+                )
 
         # Формируем сообщение с результатами
         results_message = f"<b> Викторина завершена!</b>\n\n"
@@ -1006,7 +1177,6 @@ async def end_quiz_command(message: types.Message):
             for user in incorrect_users:
                 results_message += f"• {user}\n"
 
-
         # Отправляем результаты в группу
         await bot.send_message(GROUP_ID, results_message)
 
@@ -1025,7 +1195,8 @@ async def end_quiz_command(message: types.Message):
         for i, answer in enumerate(quiz['answers']):
             users_who_chose = answer_stats.get(i, [])
             count = len(users_who_chose)
-            percentage = (count / total_participants * 100) if total_participants > 0 else 0
+            percentage = (count / total_participants *
+                          100) if total_participants > 0 else 0
 
             stats_message += f"<b>{answer}</b>\n"
             stats_message += f"└ {count} чел. ({percentage:.1f}%)\n"
@@ -1040,7 +1211,9 @@ async def end_quiz_command(message: types.Message):
                             user_name += f" (@{user.username})"
                         user_names.append(user_name)
                     except Exception as e:
-                        logging.error(f"Ошибка получения информации о пользователе {user_id}: {e}")
+                        logging.error(
+                            f"Ошибка получения информации о пользователе {user_id}: {e}"
+                        )
                         user_names.append(f"ID: {user_id}")
 
                 stats_message += f"└ {', '.join(user_names)}\n"
@@ -1053,15 +1226,20 @@ async def end_quiz_command(message: types.Message):
         await bot.send_message(GROUP_ID, stats_message)
 
         # Уведомляем админа
-        await message.reply(f"Викторина #{quiz_id} завершена. Результаты отправлены в группу.")
+        await message.reply(
+            f"Викторина #{quiz_id} завершена. Результаты отправлены в группу.")
 
     except (ValueError, IndexError):
-        await message.reply("Неверный формат команды. Используйте: завершить викторину [номер].")
+        await message.reply(
+            "Неверный формат команды. Используйте: завершить викторину [номер]."
+        )
     except Exception as e:
         logging.error(f"Ошибка при завершении викторины: {e}")
         await message.reply("Произошла ошибка при завершении викторины.")
 
-@dp.message(lambda m: m.chat.type == ChatType.PRIVATE and m.from_user.id in ADMIN_IDS and m.reply_to_message and m.text)
+
+@dp.message(lambda m: m.chat.type == ChatType.PRIVATE and m.from_user.id in
+            ADMIN_IDS and m.reply_to_message and m.text)
 async def admin_reply_handler(message: types.Message):
     if not message.text:
         return
@@ -1075,27 +1253,24 @@ async def admin_reply_handler(message: types.Message):
 
     # Проверяем, что это одна из заявок или ответов пользователей, на которые можно отвечать
     if not any(keyword in reply_text for keyword in [
-        "Заявка на вступление!", 
-        "Заявка на рест",
-        "Не может влиться!",
-        "ответил:",
-        "Ответ от пользователя",
-        "ID для ответа:"
+            "Заявка на вступление!", "Заявка на рест", "Не может влиться!",
+            "ответил:", "Ответ от пользователя", "ID для ответа:"
     ]):
         return
 
     # Парсим ID пользователя
     user_id = None
-    
+
     # Сначала ищем в строке "ID для ответа:" (для ответов пользователей)
     if "ID для ответа:" in reply_text:
         for line in reply_text.split('\n'):
             if "ID для ответа:" in line:
-                user_id_str = line.split(":")[1].strip().replace("<code>", "").replace("</code>", "")
+                user_id_str = line.split(":")[1].strip().replace(
+                    "<code>", "").replace("</code>", "")
                 if user_id_str.isdigit():
                     user_id = int(user_id_str)
                 break
-    
+
     # Если не найден, ищем стандартный формат заявки
     if not user_id:
         for line in reply_text.split('\n'):
@@ -1128,7 +1303,8 @@ async def admin_reply_handler(message: types.Message):
                 await db.save_user_data(user_id, role=new_role)
 
                 # Уведомляем админа, который изменил роль
-                await message.reply(f"Роль пользователя изменена на: {new_role}")
+                await message.reply(
+                    f"Роль пользователя изменена на: {new_role}")
 
                 # Уведомляем остальных админов об изменении роли
                 admin_username = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
@@ -1137,9 +1313,13 @@ async def admin_reply_handler(message: types.Message):
                 for admin_id in ADMIN_IDS:
                     if admin_id != message.from_user.id:  # Не отправляем тому, кто изменил
                         try:
-                            await bot.send_message(admin_id, other_admins_message, parse_mode=ParseMode.HTML)
+                            await bot.send_message(admin_id,
+                                                   other_admins_message,
+                                                   parse_mode=ParseMode.HTML)
                         except Exception as e:
-                            logging.error(f"Ошибка отправки уведомления об изменении роли админу {admin_id}: {e}")
+                            logging.error(
+                                f"Ошибка отправки уведомления об изменении роли админу {admin_id}: {e}"
+                            )
                 return
             except Exception as e:
                 await message.reply(f"Ошибка при изменении роли: {str(e)}")
@@ -1171,8 +1351,7 @@ async def admin_reply_handler(message: types.Message):
                                            parse_mode=ParseMode.HTML)
                 except Exception as e:
                     logging.error(
-                        f"Ошибка отправки уведомления админу {admin_id}: {e}"
-                    )
+                        f"Ошибка отправки уведомления админу {admin_id}: {e}")
 
         await message.reply(f"Ответ успешно отправлен пользователю.")
 
@@ -1190,12 +1369,15 @@ bride_game_messages = {}
 # Глобальное хранилище для отслеживания сообщений о статусе ответов
 bride_status_messages = {}
 
-@dp.message(lambda m: m.text and m.text.lower() == "начать жених" and m.from_user.id in ADMIN_IDS)
-async def start_bride_game_announcement(message: types.Message, state: FSMContext):
+
+@dp.message(lambda m: m.text and m.text.lower() == "начать жених" and m.
+            from_user.id in ADMIN_IDS)
+async def start_bride_game_announcement(message: types.Message,
+                                        state: FSMContext):
     if not db.pool:
         await message.reply("Ошибка подключения к базе данных.")
         return
-        
+
     session = await db.get_active_bride_session()
     if session:
         await message.reply("Игра уже запущена. Сначала завершите текущую.")
@@ -1203,9 +1385,10 @@ async def start_bride_game_announcement(message: types.Message, state: FSMContex
 
     session_id = await db.create_bride_session(message.from_user.id)
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Присоединиться", callback_data=f"bride_join_{session_id}")]
-    ])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Присоединиться",
+                             callback_data=f"bride_join_{session_id}")
+    ]])
 
     # Отправляем сообщение в группу
     if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
@@ -1213,11 +1396,9 @@ async def start_bride_game_announcement(message: types.Message, state: FSMContex
     else:
         chat_id = GROUP_ID
 
-    msg = await bot.send_message(
-        chat_id,
-        f"Идёт набор в игру \"Жених\"\nУчастников: 1",
-        reply_markup=keyboard
-    )
+    msg = await bot.send_message(chat_id,
+                                 f"Идёт набор в игру \"Жених\"\nУчастников: 1",
+                                 reply_markup=keyboard)
 
     # Закрепляем сообщение о наборе
     try:
@@ -1239,7 +1420,8 @@ async def start_bride_game_announcement(message: types.Message, state: FSMContex
         await message.reply("Набор в игру начат в группе.")
 
 
-@dp.message(lambda m: m.text and m.text.lower() == "запустить жених" and m.from_user.id in ADMIN_IDS)
+@dp.message(lambda m: m.text and m.text.lower() == "запустить жених" and m.
+            from_user.id in ADMIN_IDS)
 async def launch_bride_game(message: types.Message, state: FSMContext):
     try:
         session = await db.get_active_bride_session()
@@ -1248,72 +1430,115 @@ async def launch_bride_game(message: types.Message, state: FSMContext):
             return
 
         session_id = session['session_id']
-        
+
         # Получаем участников из базы данных
         participants_data = await db.get_bride_session_participants(session_id)
         participants_ids = [p['user_id'] for p in participants_data]
-        
+
         if len(participants_ids) < 3:
             await message.reply("Для игры нужно минимум 3 участника.")
             return
 
         # Выбираем случайного жениха из тех, кто еще не был женихом
-        eligible_candidates = await db.get_eligible_bride_candidates(participants_ids)
+        eligible_candidates = await db.get_eligible_bride_candidates(
+            participants_ids)
         bride_id = random.choice(eligible_candidates)
-        
+
         # Отмечаем выбранного как жениха
         await db.mark_as_bride(bride_id)
-        
+
         # Создаем игру в БД
         game_id = await db.create_bride_game(GROUP_ID, message.from_user.id)
-        
+
         # Добавляем участников с номерами
         participant_number = 1
         for participant_id in participants_ids:
             if participant_id == bride_id:
                 # Жених без номера
-                await db.add_bride_game_participant(game_id, participant_id, None, True)
+                await db.add_bride_game_participant(game_id, participant_id,
+                                                    None, True)
             else:
                 # Остальные участники с номерами - сбрасываем их статус жениха
                 await db.reset_bride_status(participant_id)
-                await db.add_bride_game_participant(game_id, participant_id, participant_number, False)
+                await db.add_bride_game_participant(game_id, participant_id,
+                                                    participant_number, False)
                 participant_number += 1
-        
+
         # Запускаем игру
         await db.start_bride_game(game_id, bride_id)
 
         # Создаем кнопку для перехода в бота
         bot_username = (await bot.me()).username
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Перейти в бота", url=f"https://t.me/{bot_username}")]
-        ])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Перейти в бота",
+                                 url=f"https://t.me/{bot_username}")
+        ]])
 
         # Сначала объявляем в группе
         if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
-            await message.answer("<b>Игра началась!</b>\n Участники получили свои роли.", reply_markup=keyboard)
+            await message.answer(
+                "<b>Игра началась!</b>\n Участники получили свои роли.",
+                reply_markup=keyboard)
         else:
-            await bot.send_message(GROUP_ID, "<b>Игра началась!</b>\n Участники получили свои роли.", reply_markup=keyboard)
-            await message.reply("<b>Игра началась!</b>\n Участники получили свои роли.")
+            await bot.send_message(
+                GROUP_ID,
+                "<b>Игра началась!</b>\n Участники получили свои роли.",
+                reply_markup=keyboard)
+            await message.reply(
+                "<b>Игра началась!</b>\n Участники получили свои роли.")
 
         # Затем уведомляем жениха
-        await bot.send_message(bride_id, "<b>🤵 Вы выбраны женихом!</b>\n Не говорите свою роль. Напишите первый вопрос.")
+        await bot.send_message(
+            bride_id,
+            "<b>🤵 Вы выбраны женихом!</b>\n Не говорите свою роль. Напишите первый вопрос."
+        )
+
+        # Отправляем список участников ведущему (создателю игры)
+        participants = await db.get_bride_participants(game_id)
+        creator_list = "<b>📋 Список участников:</b>\n\n"
+
+        # Получаем информацию о женихе
+        bride_user = await bot.get_chat(bride_id)
+        creator_list += f"🤵 Жених: {bride_user.full_name}\n\n"
+
+        # Добавляем участников с номерами
+        numbered_participants = [
+            p for p in participants if not p['is_bride'] and p['number']
+        ]
+        numbered_participants.sort(key=lambda x: x['number'])
+
+        for participant in numbered_participants:
+            try:
+                participant_user = await bot.get_chat(participant['user_id'])
+                creator_list += f"{participant['number']} - {participant_user.full_name}\n"
+            except Exception as e:
+                logging.error(
+                    f"Ошибка получения информации об участнике {participant['user_id']}: {e}"
+                )
+                creator_list += f"{participant['number']} - ID: {participant['user_id']}\n"
+
+        # Отправляем список создателю игры
+        await bot.send_message(message.from_user.id, creator_list.strip())
 
         # И отправляем номера остальным участникам
-        participants = await db.get_bride_participants(game_id)
         for participant in participants:
             if not participant['is_bride'] and participant['number']:
                 try:
                     await bot.send_message(
-                        participant['user_id'], 
+                        participant['user_id'],
                         f"<b>🎭 Ваш номер в игре: {participant['number']}</b>\n Никому не говорите свой номер. Ожидайте вопрос от жениха."
                     )
                 except Exception as e:
-                    logging.error(f"Ошибка отправки номера участнику {participant['user_id']}: {e}")
+                    logging.error(
+                        f"Ошибка отправки номера участнику {participant['user_id']}: {e}"
+                    )
 
         # Открепляем сообщение о наборе
         if session_id in bride_game_messages:
             try:
-                await bot.unpin_chat_message(GROUP_ID, bride_game_messages[session_id]["pinned_message_id"])
+                await bot.unpin_chat_message(
+                    GROUP_ID,
+                    bride_game_messages[session_id]["pinned_message_id"])
             except Exception as e:
                 logging.error(f"Ошибка открепления сообщения о наборе: {e}")
 
@@ -1324,13 +1549,14 @@ async def launch_bride_game(message: types.Message, state: FSMContext):
 
         # Очищаем состояние
         await state.clear()
-        
+
     except Exception as e:
         logging.error(f"Ошибка при запуске игры жених: {e}")
         await message.reply(f"Произошла ошибка при запуске игры: {str(e)}")
 
 
-@dp.message(lambda m: m.text and m.text.lower() == "завершить жених" and m.from_user.id in ADMIN_IDS)
+@dp.message(lambda m: m.text and m.text.lower() == "завершить жених" and m.
+            from_user.id in ADMIN_IDS)
 async def finish_bride_game(message: types.Message, state: FSMContext):
     # Проверяем активную сессию набора
     session = await db.get_active_bride_session()
@@ -1338,7 +1564,9 @@ async def finish_bride_game(message: types.Message, state: FSMContext):
         # Открепляем сообщение о наборе
         if session['session_id'] in bride_game_messages:
             try:
-                await bot.unpin_chat_message(GROUP_ID, bride_game_messages[session['session_id']]["pinned_message_id"])
+                await bot.unpin_chat_message(
+                    GROUP_ID, bride_game_messages[session['session_id']]
+                    ["pinned_message_id"])
             except Exception as e:
                 logging.error(f"Ошибка открепления сообщения о наборе: {e}")
 
@@ -1379,16 +1607,19 @@ async def finish_bride_game(message: types.Message, state: FSMContext):
     if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
         await message.answer("Игра принудительно завершена администратором.")
     else:
-        await bot.send_message(GROUP_ID, "Игра принудительно завершена администратором.")
+        await bot.send_message(
+            GROUP_ID, "Игра принудительно завершена администратором.")
         await message.reply("Игра принудительно завершена администратором.")
 
     # Уведомляем всех участников
     participants = await db.get_bride_participants(active_game['game_id'])
     for participant in participants:
         try:
-            await bot.send_message(participant['user_id'], "Игра была завершена администратором.")
+            await bot.send_message(participant['user_id'],
+                                   "Игра была завершена администратором.")
         except Exception as e:
-            logging.error(f"Ошибка уведомления участника {participant['user_id']}: {e}")
+            logging.error(
+                f"Ошибка уведомления участника {participant['user_id']}: {e}")
 
     # Очищаем статус-сообщения из БД и памяти
     rounds = await db.get_bride_rounds(active_game['game_id'])
@@ -1411,7 +1642,8 @@ async def bride_join_callback(callback: CallbackQuery, state: FSMContext):
 
     session = await db.get_active_bride_session()
     if not session or session["session_id"] != session_id:
-        await callback.answer("Игра уже началась или завершена.", show_alert=True)
+        await callback.answer("Игра уже началась или завершена.",
+                              show_alert=True)
         return
 
     # Получаем участников из базы данных
@@ -1439,23 +1671,21 @@ async def bride_join_callback(callback: CallbackQuery, state: FSMContext):
             await bot.edit_message_text(
                 chat_id=bride_game_messages[session_id]["chat_id"],
                 message_id=bride_game_messages[session_id]["message_id"],
-                text=f"Идёт набор в игру \"Жених\"\nУчастников: {len(participant_ids)}",
-                reply_markup=callback.message.reply_markup
-            )
+                text=
+                f"Идёт набор в игру \"Жених\"\nУчастников: {len(participant_ids)}",
+                reply_markup=callback.message.reply_markup)
         else:
             # Иначе пытаемся обновить текущее сообщение
             await bot.edit_message_text(
                 chat_id=callback.message.chat.id,
                 message_id=callback.message.message_id,
-                text=f"Идёт набор в игру \"Жених\"\nУчастников: {len(participant_ids)}",
-                reply_markup=callback.message.reply_markup
-            )
+                text=
+                f"Идёт набор в игру \"Жених\"\nУчастников: {len(participant_ids)}",
+                reply_markup=callback.message.reply_markup)
     except Exception as e:
         logging.error(f"Ошибка обновления сообщения: {e}")
 
     await callback.answer()
-
-
 
 
 @dp.message()
@@ -1478,149 +1708,212 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
             logging.error(f"Ошибка получения активной игры: {e}")
             return
 
-        if active_game and active_game['status'] == 'started' and message.chat.type == ChatType.PRIVATE:
+        if active_game and active_game[
+                'status'] == 'started' and message.chat.type == ChatType.PRIVATE:
             user_id = message.from_user.id
 
             # Проверяем, участвует ли пользователь в игре
-            participants = await db.get_bride_participants(active_game['game_id'])
-            user_participant = next((p for p in participants if p['user_id'] == user_id), None)
+            participants = await db.get_bride_participants(
+                active_game['game_id'])
+            user_participant = next(
+                (p for p in participants if p['user_id'] == user_id), None)
 
             if user_participant:
                 # Если это жених и игра ожидает вопрос или новый вопрос
                 if user_participant['is_bride']:
                     # Проверяем, не ждет ли игра выбора для исключения
-                    current_round = await db.get_current_bride_round(active_game['game_id'])
+                    current_round = await db.get_current_bride_round(
+                        active_game['game_id'])
                     if current_round:
                         # Проверяем, есть ли все ответы на текущий вопрос
-                        answers = await db.get_bride_answers(current_round['round_id'])
-                        non_bride_participants = [p for p in participants if not p['is_bride'] and not p['is_out']]
-                        
-                        if len(answers) == len(non_bride_participants) and not current_round['voted_out']:
+                        answers = await db.get_bride_answers(
+                            current_round['round_id'])
+                        non_bride_participants = [
+                            p for p in participants
+                            if not p['is_bride'] and not p['is_out']
+                        ]
+
+                        if len(answers) == len(
+                                non_bride_participants
+                        ) and not current_round['voted_out']:
                             # Жених должен выбрать кого исключить
                             try:
                                 choice = int(message.text.strip())
-                                valid_numbers = [p['number'] for p in non_bride_participants if p['number'] is not None]
+                                valid_numbers = [
+                                    p['number'] for p in non_bride_participants
+                                    if p['number'] is not None
+                                ]
 
                                 if choice not in valid_numbers:
-                                    await message.reply("Отправьте только число участника из списка.")
+                                    await message.reply(
+                                        "Отправьте только число участника из списка."
+                                    )
                                     return
 
                                 # Находим участника для исключения
-                                participant_to_exclude = next(p for p in non_bride_participants if p['number'] == choice)
-                                
+                                participant_to_exclude = next(
+                                    p for p in non_bride_participants
+                                    if p['number'] == choice)
+
                                 # Убеждаемся что user_id правильного типа
-                                exclude_user_id = int(participant_to_exclude['user_id'])
+                                exclude_user_id = int(
+                                    participant_to_exclude['user_id'])
                                 round_id = int(current_round['round_id'])
                                 game_id = int(active_game['game_id'])
 
                                 # Исключаем участника
-                                await db.vote_out_participant(game_id, exclude_user_id, round_id)
+                                await db.vote_out_participant(
+                                    game_id, exclude_user_id, round_id)
 
                                 # Открепляем ответы
                                 try:
-                                    pinned_answers = await db.get_pinned_message(round_id, 'answers')
+                                    pinned_answers = await db.get_pinned_message(
+                                        round_id, 'answers')
                                     if pinned_answers:
-                                        await bot.unpin_chat_message(GROUP_ID, pinned_answers)
+                                        await bot.unpin_chat_message(
+                                            GROUP_ID, pinned_answers)
                                 except Exception as e:
-                                    logging.error(f"Ошибка открепления ответов: {e}")
+                                    logging.error(
+                                        f"Ошибка открепления ответов: {e}")
 
                                 # Отправляем сообщение в группу
-                                await bot.send_message(GROUP_ID, f"<b>Выбывает номер: {choice}</b>")
+                                await bot.send_message(
+                                    GROUP_ID,
+                                    f"<b>Выбывает номер: {choice}</b>")
 
                                 # Уведомляем исключенного участника
                                 await bot.send_message(
                                     participant_to_exclude['user_id'],
-                                    "Вы выбыли. Дождитесь конца игры."
-                                )
+                                    "Вы выбыли. Дождитесь конца игры.")
 
                                 # Проверяем, остался ли только один участник
-                                remaining_participants = await db.get_bride_participants(active_game['game_id'])
-                                active_non_bride = [p for p in remaining_participants if not p['is_out'] and not p['is_bride']]
+                                remaining_participants = await db.get_bride_participants(
+                                    active_game['game_id'])
+                                active_non_bride = [
+                                    p for p in remaining_participants
+                                    if not p['is_out'] and not p['is_bride']
+                                ]
 
                                 if len(active_non_bride) == 1:
                                     # Игра окончена
                                     winner = active_non_bride[0]
-                                    
+
                                     # Отправляем ответ жениху
-                                    await message.reply(f"<b>Победил номер: {winner['number']}!</b>\nИгра окончена.")
+                                    await message.reply(
+                                        f"<b>Победил номер: {winner['number']}!</b>\nИгра окончена."
+                                    )
 
                                     # Поздравляем победителя
-                                    await bot.send_message(winner['user_id'], "<b>Поздравляю, вы выиграли!</b>\nИгра окончена.")
+                                    await bot.send_message(
+                                        winner['user_id'],
+                                        "<b>Поздравляю, вы выиграли!</b>\nИгра окончена."
+                                    )
 
                                     # Раскрываем роли
                                     bride_user = await bot.get_chat(user_id)
-                                    winner_user = await bot.get_chat(winner['user_id'])
+                                    winner_user = await bot.get_chat(
+                                        winner['user_id'])
 
                                     results_text = f"<b>Женихом был - {bride_user.full_name}\n</b>"
                                     results_text += f"<b>Победил номер - {winner['number']}</b>\n\n"
 
                                     # Перечисляем всех участников
-                                    all_participants = await db.get_bride_participants(active_game['game_id'])
-                                    for participant in sorted(all_participants, key=lambda x: x['number'] or 0):
-                                        if participant['number'] and not participant['is_bride']:
-                                            participant_user = await bot.get_chat(participant['user_id'])
+                                    all_participants = await db.get_bride_participants(
+                                        active_game['game_id'])
+                                    for participant in sorted(
+                                            all_participants,
+                                            key=lambda x: x['number'] or 0):
+                                        if participant[
+                                                'number'] and not participant[
+                                                    'is_bride']:
+                                            participant_user = await bot.get_chat(
+                                                participant['user_id'])
                                             results_text += f"{participant['number']} - {participant_user.full_name}\n"
 
-                                    await bot.send_message(GROUP_ID, results_text.strip())
+                                    await bot.send_message(
+                                        GROUP_ID, results_text.strip())
 
                                     # Завершаем игру
-                                    await db.finish_bride_game(active_game['game_id'])
+                                    await db.finish_bride_game(
+                                        active_game['game_id'])
                                 else:
                                     # Продолжаем игру - жених задает новый вопрос
-                                    await message.reply("Отправьте следующий вопрос для оставшихся участников.")
+                                    await message.reply(
+                                        "Отправьте следующий вопрос для оставшихся участников."
+                                    )
 
                                 return
 
                             except ValueError:
-                                await message.reply("Отправьте только число участника.")
+                                await message.reply(
+                                    "Отправьте только число участника.")
                                 return
-                    
+
                     # Проверяем, есть ли незавершенный раунд
-                    current_round = await db.get_current_bride_round(active_game['game_id'])
+                    current_round = await db.get_current_bride_round(
+                        active_game['game_id'])
                     if current_round and not current_round['voted_out']:
                         # Проверяем, все ли ответили на текущий вопрос
-                        answers = await db.get_bride_answers(current_round['round_id'])
-                        non_bride_participants = [p for p in participants if not p['is_bride'] and not p['is_out']]
-                        
+                        answers = await db.get_bride_answers(
+                            current_round['round_id'])
+                        non_bride_participants = [
+                            p for p in participants
+                            if not p['is_bride'] and not p['is_out']
+                        ]
+
                         if len(answers) < len(non_bride_participants):
-                            await message.reply("Дождитесь, пока все участники ответят на текущий вопрос.")
+                            await message.reply(
+                                "Дождитесь, пока все участники ответят на текущий вопрос."
+                            )
                             return
                         elif not current_round['voted_out']:
-                            await message.reply("Сначала выберите, кого исключить из текущего раунда.")
+                            await message.reply(
+                                "Сначала выберите, кого исключить из текущего раунда."
+                            )
                             return
-                    
+
                     # Если это новый вопрос от жениха
                     # Получаем текущий номер раунда
-                    existing_rounds = await db.get_bride_rounds(active_game['game_id'])
+                    existing_rounds = await db.get_bride_rounds(
+                        active_game['game_id'])
                     round_number = len(existing_rounds) + 1
-                    
+
                     # Создаем раунд и сохраняем вопрос
-                    round_id = await db.create_bride_round(active_game['game_id'], round_number, message.text)
+                    round_id = await db.create_bride_round(
+                        active_game['game_id'], round_number, message.text)
 
                     await message.reply("📤 Ваш вопрос отправлен участникам.")
 
                     # Отправляем вопрос в группу
                     bot_username = (await bot.me()).username
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="Перейти в бота", url=f"https://t.me/{bot_username}")]
-                    ])
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                        InlineKeyboardButton(
+                            text="Перейти в бота",
+                            url=f"https://t.me/{bot_username}")
+                    ]])
 
                     question_msg = await bot.send_message(
                         GROUP_ID,
                         f"<b>Вопрос от жениха!</b>\n\n{message.text}",
-                        reply_markup=keyboard
-                    )
+                        reply_markup=keyboard)
 
                     # Закрепляем вопрос
                     try:
-                        await bot.pin_chat_message(GROUP_ID, question_msg.message_id)
+                        await bot.pin_chat_message(GROUP_ID,
+                                                   question_msg.message_id)
                         # Сохраняем ID закрепленного сообщения с вопросом
-                        await db.save_pinned_message(active_game['game_id'], round_id, question_msg.message_id, 'question')
+                        await db.save_pinned_message(active_game['game_id'],
+                                                     round_id,
+                                                     question_msg.message_id,
+                                                     'question')
                     except Exception as e:
                         logging.error(f"Ошибка закрепления вопроса: {e}")
 
                     # Отправляем вопрос остальным участникам (только тем, кто не выбыл)
-                    active_participants = [p for p in participants if not p['is_bride'] and not p['is_out']]
+                    active_participants = [
+                        p for p in participants
+                        if not p['is_bride'] and not p['is_out']
+                    ]
                     for participant in active_participants:
                         try:
                             await bot.send_message(
@@ -1628,42 +1921,64 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                                 f"<b>Вопрос от жениха!</b>\n{message.text}\n\n Отправьте свой ответ."
                             )
                         except Exception as e:
-                            logging.error(f"Ошибка отправки вопроса участнику {participant['user_id']}: {e}")
+                            logging.error(
+                                f"Ошибка отправки вопроса участнику {participant['user_id']}: {e}"
+                            )
 
                     # Отправляем статус ответов создателю игры
-                    await send_status_message_to_creator(active_game['game_id'], round_id)
+                    await send_status_message_to_creator(
+                        active_game['game_id'], round_id)
 
                     return
 
                 # Если это не жених, сохраняем ответ
                 elif not user_participant['is_bride']:
                     # Получаем текущий раунд
-                    current_round = await db.get_current_bride_round(active_game['game_id'])
+                    current_round = await db.get_current_bride_round(
+                        active_game['game_id'])
                     if current_round:
-                        await db.save_bride_answer(current_round['round_id'], user_id, message.text)
-                        await message.reply("Ваш ответ отправлен. Дождитесь остальных участников.")
+                        await db.save_bride_answer(current_round['round_id'],
+                                                   user_id, message.text)
+                        await message.reply(
+                            "Ваш ответ отправлен. Дождитесь остальных участников."
+                        )
 
                         # Обновляем статус ответов для создателя игры
-                        await update_status_message_for_creator(active_game['game_id'], current_round['round_id'])
+                        await update_status_message_for_creator(
+                            active_game['game_id'], current_round['round_id'])
+
+                        # Сохраняем текущий статус ответов в БД
+                        current_statuses = await db.get_all_participants_status(
+                            active_game['game_id'], current_round['round_id'])
+                        await db.save_participant_status_snapshot(
+                            current_round['round_id'], current_statuses)
 
                         # Проверяем, все ли ответили
-                        answers = await db.get_bride_answers(current_round['round_id'])
-                        non_bride_participants = [p for p in participants if not p['is_bride'] and not p['is_out']]
+                        answers = await db.get_bride_answers(
+                            current_round['round_id'])
+                        non_bride_participants = [
+                            p for p in participants
+                            if not p['is_bride'] and not p['is_out']
+                        ]
 
                         if len(answers) == len(non_bride_participants):
                             # Открепляем вопрос
                             try:
-                                pinned_question = await db.get_pinned_message(current_round['round_id'], 'question')
+                                pinned_question = await db.get_pinned_message(
+                                    current_round['round_id'], 'question')
                                 if pinned_question:
-                                    await bot.unpin_chat_message(GROUP_ID, pinned_question)
+                                    await bot.unpin_chat_message(
+                                        GROUP_ID, pinned_question)
                             except Exception as e:
-                                logging.error(f"Ошибка открепления вопроса: {e}")
+                                logging.error(
+                                    f"Ошибка открепления вопроса: {e}")
 
                             # Все ответили, отправляем результаты в группу
                             results_message = ""
 
                             # Сортируем ответы по номерам участников
-                            sorted_answers = sorted(answers, key=lambda x: x['number'])
+                            sorted_answers = sorted(answers,
+                                                    key=lambda x: x['number'])
 
                             for answer in sorted_answers:
                                 results_message += f"{answer['number']}\n{answer['answer']}\n\n"
@@ -1673,25 +1988,32 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
 
                             # Закрепляем ответы
                             try:
-                                await bot.pin_chat_message(GROUP_ID, answers_msg.message_id)
-                                await db.save_pinned_message(active_game['game_id'], current_round['round_id'], answers_msg.message_id, 'answers')
+                                await bot.pin_chat_message(
+                                    GROUP_ID, answers_msg.message_id)
+                                await db.save_pinned_message(
+                                    active_game['game_id'],
+                                    current_round['round_id'],
+                                    answers_msg.message_id, 'answers')
                             except Exception as e:
-                                logging.error(f"Ошибка закрепления ответов: {e}")
+                                logging.error(
+                                    f"Ошибка закрепления ответов: {e}")
 
                             # Отправляем сообщение о выборе
                             bot_username = (await bot.me()).username
-                            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                                [InlineKeyboardButton(text="Перейти в бота", url=f"https://t.me/{bot_username}")]
-                            ])
+                            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                                InlineKeyboardButton(
+                                    text="Перейти в бота",
+                                    url=f"https://t.me/{bot_username}")
+                            ]])
 
                             await bot.send_message(
                                 GROUP_ID,
                                 "Жених должен выбрать кто выбывает.",
-                                reply_markup=keyboard
-                            )
+                                reply_markup=keyboard)
 
                             # Отправляем жениху просьбу выбрать
-                            bride_participant = next(p for p in participants if p['is_bride'])
+                            bride_participant = next(p for p in participants
+                                                     if p['is_bride'])
                             await bot.send_message(
                                 bride_participant['user_id'],
                                 "Напишите число того участника, чей ответ вам понравился меньше всего."
@@ -1706,7 +2028,8 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
         # Антиспам проверка для пользователей не из группы
         if message.from_user.id not in ADMIN_IDS:
             user_id = message.from_user.id
-            if not await is_member(user_id) and not check_message_limit(user_id):
+            if not await is_member(user_id) and not check_message_limit(
+                    user_id):
                 try:
                     await message.answer(
                         "Вы исчерпали лимит сообщений. Вступите в группу, чтобы продолжить общение с ботом. Если это баг, напишите <a href='https://t.me/alren15'>администратору</a>."
@@ -1716,9 +2039,8 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                 return
 
         # Проверяем, не является ли это ответом пользователя на сообщение админа
-        if (message.from_user.id not in ADMIN_IDS and 
-            message.reply_to_message and 
-            message.chat.type == ChatType.PRIVATE):
+        if (message.from_user.id not in ADMIN_IDS and message.reply_to_message
+                and message.chat.type == ChatType.PRIVATE):
 
             reply_text = message.reply_to_message.text or message.reply_to_message.caption or ""
 
@@ -1736,19 +2058,23 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
 
                 for admin_id in ADMIN_IDS:
                     try:
-                        await bot.send_message(admin_id, admin_notification, parse_mode=ParseMode.HTML)
+                        await bot.send_message(admin_id,
+                                               admin_notification,
+                                               parse_mode=ParseMode.HTML)
                     except Exception as e:
-                        logging.error(f"Ошибка отправки ответа пользователя админу {admin_id}: {e}")
+                        logging.error(
+                            f"Ошибка отправки ответа пользователя админу {admin_id}: {e}"
+                        )
 
                 await message.reply("Ваш ответ отправлен администраторам.")
                 return
 
         # Обрабатываем сообщения от пользователей не из группы (обратная связь)
-        if (message.from_user.id not in ADMIN_IDS and 
-            message.chat.type == ChatType.PRIVATE and 
-            not message.reply_to_message and 
-            not await is_member(message.from_user.id)):
-            
+        if (message.from_user.id not in ADMIN_IDS
+                and message.chat.type == ChatType.PRIVATE
+                and not message.reply_to_message
+                and not await is_member(message.from_user.id)):
+
             # Это обратная связь от пользователя не из группы
             user = message.from_user
             user_id = user.id
@@ -1762,9 +2088,13 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
 
             for admin_id in ADMIN_IDS:
                 try:
-                    await bot.send_message(admin_id, admin_notification, parse_mode=ParseMode.HTML)
+                    await bot.send_message(admin_id,
+                                           admin_notification,
+                                           parse_mode=ParseMode.HTML)
                 except Exception as e:
-                    logging.error(f"Ошибка отправки сообщения пользователя админу {admin_id}: {e}")
+                    logging.error(
+                        f"Ошибка отправки сообщения пользователя админу {admin_id}: {e}"
+                    )
 
             await message.reply("Ваше сообщение отправлено администраторам.")
             return
@@ -1773,12 +2103,12 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
         pass
 
     except Exception as e:
-        logging.error(f"Ошибка в обработчике ответов: {str(e)}",
-                      exc_info=True)
+        logging.error(f"Ошибка в обработчике ответов: {str(e)}", exc_info=True)
         try:
             await message.reply("Произошла системная ошибка. Проверьте логи.")
         except Exception as reply_error:
-            logging.error(f"Не удалось отправить сообщение об ошибке: {reply_error}")
+            logging.error(
+                f"Не удалось отправить сообщение об ошибке: {reply_error}")
 
 
 async def send_status_message_to_creator(game_id: int, round_id: int):
@@ -1797,7 +2127,7 @@ async def send_status_message_to_creator(game_id: int, round_id: int):
             return
 
         creator_id = game['creator_id']
-        
+
         # Получаем участников
         participants = await db.get_bride_participants(game_id)
         bride = next((p for p in participants if p['is_bride']), None)
@@ -1806,25 +2136,30 @@ async def send_status_message_to_creator(game_id: int, round_id: int):
 
         # Получаем информацию о женихе
         bride_user = await bot.get_chat(bride['user_id'])
-        
+
         # Формируем начальное сообщение
         status_text = f"Жених {bride_user.full_name} - ответил\n"
-        
+
         # Добавляем участников
-        active_participants = [p for p in participants if not p['is_bride'] and not p['is_out']]
+        active_participants = [
+            p for p in participants if not p['is_bride'] and not p['is_out']
+        ]
         for participant in active_participants:
             try:
                 participant_user = await bot.get_chat(participant['user_id'])
                 status_text += f"{participant_user.full_name} - не ответил\n"
             except Exception as e:
-                logging.error(f"Ошибка получения информации об участнике {participant['user_id']}: {e}")
+                logging.error(
+                    f"Ошибка получения информации об участнике {participant['user_id']}: {e}"
+                )
                 status_text += f"Участник {participant['user_id']} - не ответил\n"
 
         # Отправляем сообщение создателю
         status_msg = await bot.send_message(creator_id, status_text.strip())
-        
+
         # Сохраняем в БД и локальном хранилище
-        await db.save_round_status_message(round_id, creator_id, status_msg.message_id)
+        await db.save_round_status_message(round_id, creator_id,
+                                           status_msg.message_id)
         bride_status_messages[round_id] = {
             'creator_id': creator_id,
             'message_id': status_msg.message_id,
@@ -1853,40 +2188,44 @@ async def update_status_message_for_creator(game_id: int, round_id: int):
                 'game_id': game_id
             }
             bride_status_messages[round_id] = status_info
-        
+
         # Получаем участников и ответы
         participants = await db.get_bride_participants(game_id)
         answers = await db.get_bride_answers(round_id)
         answered_user_ids = {answer['user_id'] for answer in answers}
-        
+
         bride = next((p for p in participants if p['is_bride']), None)
         if not bride:
             return
 
         # Получаем информацию о женихе
         bride_user = await bot.get_chat(bride['user_id'])
-        
+
         # Формируем обновленное сообщение
         status_text = f"Жених {bride_user.full_name} - ответил\n"
-        
+
         # Добавляем участников с их статусом
-        active_participants = [p for p in participants if not p['is_bride'] and not p['is_out']]
+        active_participants = [
+            p for p in participants if not p['is_bride'] and not p['is_out']
+        ]
         for participant in active_participants:
             try:
                 participant_user = await bot.get_chat(participant['user_id'])
-                status = "ответил" if participant['user_id'] in answered_user_ids else "не ответил"
+                status = "ответил" if participant[
+                    'user_id'] in answered_user_ids else "не ответил"
                 status_text += f"{participant_user.full_name} - {status}\n"
             except Exception as e:
-                logging.error(f"Ошибка получения информации об участнике {participant['user_id']}: {e}")
-                status = "ответил" if participant['user_id'] in answered_user_ids else "не ответил"
+                logging.error(
+                    f"Ошибка получения информации об участнике {participant['user_id']}: {e}"
+                )
+                status = "ответил" if participant[
+                    'user_id'] in answered_user_ids else "не ответил"
                 status_text += f"Участник {participant['user_id']} - {status}\n"
 
         # Обновляем сообщение
-        await bot.edit_message_text(
-            chat_id=status_info['creator_id'],
-            message_id=status_info['message_id'],
-            text=status_text.strip()
-        )
+        await bot.edit_message_text(chat_id=status_info['creator_id'],
+                                    message_id=status_info['message_id'],
+                                    text=status_text.strip())
 
     except Exception as e:
         logging.error(f"Ошибка обновления статус-сообщения: {e}")
@@ -1902,9 +2241,12 @@ async def main():
             if not await db.connect():
                 retry_count += 1
                 if retry_count >= max_retries:
-                    logging.error("Не удалось подключиться к базе данных после нескольких попыток. Остановка бота.")
+                    logging.error(
+                        "Не удалось подключиться к базе данных после нескольких попыток. Остановка бота."
+                    )
                     return
-                logging.warning(f"Попытка подключения к БД {retry_count}/{max_retries}")
+                logging.warning(
+                    f"Попытка подключения к БД {retry_count}/{max_retries}")
                 await asyncio.sleep(5)
                 continue
 
@@ -1912,13 +2254,18 @@ async def main():
             await load_data_from_db()
 
             logging.info("Bot started")
-            await dp.start_polling(bot, allowed_updates=["message", "chat_member", "callback_query"])
+            await dp.start_polling(
+                bot,
+                allowed_updates=["message", "chat_member", "callback_query"])
             break
         except Exception as e:
             retry_count += 1
-            logging.error(f"Ошибка подключения (попытка {retry_count}/{max_retries}): {e}")
+            logging.error(
+                f"Ошибка подключения (попытка {retry_count}/{max_retries}): {e}"
+            )
             if retry_count >= max_retries:
-                logging.error("Максимальное количество попыток подключения исчерпано")
+                logging.error(
+                    "Максимальное количество попыток подключения исчерпано")
                 raise
             await asyncio.sleep(10)
         finally:
