@@ -422,6 +422,10 @@ async def handle_auf_ai(message: types.Message):
 
         ai_response = chat_completion.choices[0].message.content
 
+        # Очищаем от HTML-тегов, которые Telegram не поддерживает
+        import re
+        ai_response = re.sub(r'<[^>]+>', '', ai_response)      
+
         # Ограничиваем длину ответа для Telegram
         if len(ai_response) > 4000:
             ai_response = ai_response[:4000] + "..."
