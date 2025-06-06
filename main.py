@@ -187,6 +187,25 @@ async def quiz_callback_handler(callback: CallbackQuery):
         await callback.answer("Произошла ошибка.", show_alert=True)
 
 
+# Обработчик для удаления системных сообщений о закреплении/откреплении только в группе
+@dp.message(lambda m: m.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP} and
+            (m.content_type == 'pinned_message' or 
+            (m.text and any(phrase in m.text.lower() for phrase in [
+                'закрепил сообщение', 'открепил сообщение', 'pinned a message', 'unpinned a message',
+                'закрепил', 'открепил'
+            ]))))
+async def delete_pin_messages(message: types.Message):
+    """Удаляет системные сообщения о закреплении/откреплении от бота только в группе"""
+    # Проверяем, что это сообщение от бота или системное сообщение о закреплении
+    if (message.from_user and message.from_user.is_bot and 
+        message.from_user.id == (await bot.me()).id) or message.content_type == 'pinned_message':
+        try:
+            await asyncio.sleep(1)  # Небольшая задержка для надежности
+            await bot.delete_message(message.chat.id, message.message_id)
+            logging.info(f"Удалено системное сообщение о закреплении в группе: {message.message_id}")
+        except Exception as e:
+            logging.error(f"Ошибка удаления системного сообщения: {e}")
+
 # Handlers
 @dp.message(F.text.casefold() == "/start")
 async def start_handler(message: types.Message, state: FSMContext):
@@ -1412,7 +1431,7 @@ async def start_bride_game_announcement(message: types.Message,
 
     # Закрепляем сообщение о наборе
     try:
-        await bot.pin_chat_message(chat_id, msg.message_id)
+        await bot.pin_chat_message(chat_id, msg.message_id, disable_notification=True)
     except Exception as e:
         logging.error(f"Ошибка закрепления сообщения о наборе: {e}")
 
@@ -1936,7 +1955,8 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                     # Закрепляем вопрос
                     try:
                         await bot.pin_chat_message(GROUP_ID,
-                                                   question_msg.message_id)
+                                                   question_msg.message_id,
+                                                   disable_notification=True)
                         # Сохраняем ID закрепленного сообщения с вопросом
                         await db.save_pinned_message(active_game['game_id'],
                                                      round_id,
@@ -2025,7 +2045,8 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                             # Закрепляем ответы
                             try:
                                 await bot.pin_chat_message(
-                                    GROUP_ID, answers_msg.message_id)
+                                    GROUP_ID, answers_msg.message_id,
+                                    disable_notification=True)
                                 await db.save_pinned_message(
                                     active_game['game_id'],
                                     current_round['round_id'],
