@@ -1247,7 +1247,7 @@ async def end_quiz_command(message: types.Message):
 
                 stats_message += f"└ {', '.join(user_names)}\n"
             else:
-
+                pass
 async def handle_bride_question(message: types.Message, active_game: dict, participants: list, user_participant: dict):
     """Обработка нового вопроса от жениха"""
     try:
