@@ -1247,6 +1247,25 @@ async def end_quiz_command(message: types.Message):
 
                 stats_message += f"└ {', '.join(user_names)}\n"
             else:
+                stats_message += "└ Никто не выбрал\n"
+
+            stats_message += "\n"
+
+        # Отправляем детальную статистику
+        await bot.send_message(GROUP_ID, stats_message)
+
+        # Уведомляем админа
+        await message.reply(
+            f"Викторина #{quiz_id} завершена. Результаты отправлены в группу.")
+
+    except (ValueError, IndexError):
+        await message.reply(
+            "Неверный формат команды. Используйте: завершить викторину [номер]."
+        )
+    except Exception as e:
+        logging.error(f"Ошибка при завершении викторины: {e}")
+        await message.reply("Произошла ошибка при завершении викторины.")
+
 
 async def handle_bride_question(message: types.Message, active_game: dict, participants: list, user_participant: dict):
     """Обработка нового вопроса от жениха"""
