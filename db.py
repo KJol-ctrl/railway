@@ -221,6 +221,7 @@ class Database:
                     user_id BIGINT NOT NULL,
                     was_bride_count INTEGER DEFAULT 0,
                     last_bride_game TIMESTAMP,
+                    games_since_bride INTEGER DEFAULT 0,
                     PRIMARY KEY (user_id)
                 );
             """)
@@ -512,6 +513,15 @@ class Database:
                 INSERT INTO bride_participants (game_id, user_id, number, is_bride)
                 VALUES ($1::BIGINT, $2::BIGINT, $3, $4)
             """, game_id, user_id, number, is_bride)
+            
+            # Увеличиваем счетчик игр для всех участников (кроме жениха)
+            if not is_bride:
+                await conn.execute("""
+                    INSERT INTO bride_history (user_id, games_since_bride)
+                    VALUES ($1::BIGINT, 1)
+                    ON CONFLICT (user_id)
+                    DO UPDATE SET games_since_bride = bride_history.games_since_bride + 1
+                """, user_id)
 
     async def get_bride_rounds(self, game_id: int) -> List[Dict]:
         """Получение всех раундов игры"""
@@ -805,21 +815,25 @@ class Database:
                 await conn.execute("""
                     UPDATE bride_history
                     SET was_bride_count = was_bride_count + 1,
-                        last_bride_game = CURRENT_TIMESTAMP
+                        last_bride_game = CURRENT_TIMESTAMP,
+                        games_since_bride = 0
                     WHERE user_id = $1::BIGINT
                 """, user_id)
             else:
                 await conn.execute("""
-                    INSERT INTO bride_history (user_id, was_bride_count, last_bride_game)
-                    VALUES ($1::BIGINT, 1, CURRENT_TIMESTAMP)
+                    INSERT INTO bride_history (user_id, was_bride_count, last_bride_game, games_since_bride)
+                    VALUES ($1::BIGINT, 1, CURRENT_TIMESTAMP, 0)
                 """, user_id)
 
     async def can_be_bride(self, user_id: int) -> bool:
         """Проверка, может ли пользователь быть женихом"""
         history = await self.get_bride_history(user_id)
         if history:
-            # Пользователь уже был женихом, проверяем условие
-            return history['was_bride_count'] <= 1
+            # Если пользователь был женихом и прошло меньше 3 игр - не может быть женихом
+            if history['was_bride_count'] > 0 and history['games_since_bride'] < 3:
+                return False
+            # Если прошло 3 или больше игр - может быть женихом
+            return True
         else:
             # Пользователь еще не был женихом
             return True
@@ -849,7 +863,7 @@ class Database:
         async with self.pool.acquire() as conn:
             await conn.execute("""
                 UPDATE bride_history
-                SET was_bride_count = 0
+                SET was_bride_count = 0, games_since_bride = 0
                 WHERE user_id = $1::BIGINT
             """, user_id)
 
