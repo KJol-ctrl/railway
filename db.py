@@ -194,7 +194,7 @@ class Database:
                     voted_out BIGINT
                 );
             """)
-            
+
             # Обновляем тип поля voted_out если таблица уже существует
             try:
                 await conn.execute("""
@@ -246,7 +246,7 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            
+
             # Обновляем существующие таблицы для совместимости
             try:
                 await conn.execute("ALTER TABLE active_quizzes ALTER COLUMN quiz_id TYPE BIGINT")
@@ -585,7 +585,7 @@ class Database:
         async with self.pool.acquire() as conn:
             # Преобразуем user_id в int, если он передается как строка
             user_id = int(user_id) if isinstance(user_id, str) else user_id
-            
+
             await conn.execute("""
                 UPDATE bride_participants 
                 SET is_out = TRUE
@@ -830,14 +830,14 @@ class Database:
         for user_id in participants_ids:
             if await self.can_be_bride(user_id):
                 eligible.append(user_id)
-        
+
         # Если все уже были женихами, возвращаем всех участников
         if not eligible:
             # Сбрасываем счетчики для всех участников
             for user_id in participants_ids:
                 await self.reset_bride_status(user_id)
             eligible = participants_ids
-        
+
         return eligible
 
     async def mark_as_bride(self, user_id: int):
@@ -878,16 +878,16 @@ class Database:
                 SELECT message_id FROM bride_pinned_messages
                 WHERE game_id = $1::BIGINT
             """, game_id)
-            
+
             # Импортируем bot из main.py для открепления
             from main import bot, GROUP_ID
-            
+
             for row in message_ids:
                 try:
                     await bot.unpin_chat_message(GROUP_ID, row['message_id'])
                 except Exception as e:
                     logging.error(f"Ошибка открепления сообщения {row['message_id']}: {e}")
-            
+
             # Удаляем записи о закрепленных сообщениях
             await conn.execute("""
                 DELETE FROM bride_pinned_messages WHERE game_id = $1::BIGINT
@@ -918,20 +918,89 @@ class Database:
                 DELETE FROM bride_round_status WHERE round_id = $1::BIGINT
             """, round_id)
 
+    async def get_participant_answer_status(self, round_id: int, user_id: int) -> bool:
+        """Проверка, ответил ли участник в данном раунде"""
+        async with self.pool.acquire() as conn:
+            result = await conn.fetchval("""
+                SELECT EXISTS(SELECT 1 FROM bride_answers 
+                              WHERE round_id = $1::BIGINT AND user_id = $2::BIGINT)
+            """, round_id, user_id)
+            return result or False
+
+    async def get_all_participants_status(self, game_id: int, round_id: int) -> Dict[int, bool]:
+        """Получение статуса ответов всех участников"""
+        async with self.pool.acquire() as conn:
+            # Получаем всех активных участников (не жениха и не выбывших)
+            participants = await conn.fetch("""
+                SELECT user_id FROM bride_participants 
+                WHERE game_id = $1::BIGINT AND is_bride = FALSE AND is_out = FALSE
+            """, game_id)
+            
+            # Получаем тех, кто ответил
+            answered = await conn.fetch("""
+                SELECT user_id FROM bride_answers WHERE round_id = $1::BIGINT
+            """, round_id)
+            
+            answered_ids = {row['user_id'] for row in answered}
+            
+            # Формируем словарь со статусами
+            status_dict = {}
+            for participant in participants:
+                user_id = participant['user_id']
+                status_dict[user_id] = user_id in answered_ids
+                
+            return status_dict
+
+    async def save_participant_status_snapshot(self, round_id: int, participant_statuses: Dict[int, bool]):
+        """Сохранение снимка статусов участников для восстановления после перезапуска"""
+        async with self.pool.acquire() as conn:
+            # Создаем таблицу если её нет
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS bride_participant_status (
+                    round_id BIGINT,
+                    user_id BIGINT,
+                    has_answered BOOLEAN DEFAULT FALSE,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (round_id, user_id)
+                )
+            """)
+            
+            # Сохраняем статусы
+            for user_id, has_answered in participant_statuses.items():
+                await conn.execute("""
+                    INSERT INTO bride_participant_status (round_id, user_id, has_answered)
+                    VALUES ($1::BIGINT, $2::BIGINT, $3)
+                    ON CONFLICT (round_id, user_id)
+                    DO UPDATE SET has_answered = EXCLUDED.has_answered, updated_at = CURRENT_TIMESTAMP
+                """, round_id, user_id, has_answered)
+
+    async def get_participant_status_snapshot(self, round_id: int) -> Dict[int, bool]:
+        """Получение сохраненного снимка статусов участников"""
+        async with self.pool.acquire() as conn:
+            try:
+                rows = await conn.fetch("""
+                    SELECT user_id, has_answered FROM bride_participant_status 
+                    WHERE round_id = $1::BIGINT
+                """, round_id)
+                return {row['user_id']: row['has_answered'] for row in rows}
+            except Exception:
+                # Таблица может не существовать, возвращаем пустой словарь
+                return {}
+
     async def get_eligible_bride_candidates(self, participants_ids: list) -> list:
         """Получение списка подходящих кандидатов в женихи"""
         eligible = []
         for user_id in participants_ids:
             if await self.can_be_bride(user_id):
                 eligible.append(user_id)
-        
+
         # Если все уже были женихами, возвращаем всех участников
         if not eligible:
             # Сбрасываем счетчики для всех участников
             for user_id in participants_ids:
                 await self.reset_bride_status(user_id)
             eligible = participants_ids
-        
+
         return eligible
 
     async def mark_as_bride(self, user_id: int):
