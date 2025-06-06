@@ -466,11 +466,6 @@ async def handle_auf_ai(message: types.Message):
     if not user_text:
         return
 
-    # Проверяем доступность Groq API
-    if not groq_client:
-        await message.reply("Нейросеть временно недоступна")
-        return
-
     # Определяем промпт в зависимости от ID пользователя
     user_id = message.from_user.id
     if user_id in [5165944389, 1309019691]:
