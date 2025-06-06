@@ -415,7 +415,7 @@ async def handle_auf_ai(message: types.Message):
                     "content": user_text
                 }
             ],
-            model="llama-3.1-70b-versatile",  # Бесплатная и мощная модель
+            model="deepseek-r1-distill-llama-70b",  # Бесплатная и мощная модель
             max_tokens=500,
             temperature=0.7
         )
