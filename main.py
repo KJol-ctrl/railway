@@ -1247,6 +1247,238 @@ async def end_quiz_command(message: types.Message):
 
                 stats_message += f"└ {', '.join(user_names)}\n"
             else:
+
+async def handle_bride_question(message: types.Message, active_game: dict, participants: list, user_participant: dict):
+    """Обработка нового вопроса от жениха"""
+    try:
+        # Проверяем, есть ли незавершенный раунд
+        current_round = await db.get_current_bride_round(active_game['game_id'])
+        if current_round and not current_round['voted_out']:
+            # Проверяем, все ли ответили на текущий вопрос
+            answers = await db.get_bride_answers(current_round['round_id'])
+            non_bride_participants = [
+                p for p in participants if not p['is_bride'] and not p['is_out']
+            ]
+
+            if len(answers) < len(non_bride_participants):
+                await message.reply("Дождитесь, пока все участники ответят на текущий вопрос.")
+                return
+            elif not current_round['voted_out']:
+                await message.reply("Сначала выберите, кого исключить из текущего раунда.")
+                return
+
+        # Если это новый вопрос от жениха
+        # Получаем текущий номер раунда
+        existing_rounds = await db.get_bride_rounds(active_game['game_id'])
+        round_number = len(existing_rounds) + 1
+
+        # Создаем раунд и сохраняем вопрос
+        round_id = await db.create_bride_round(active_game['game_id'], round_number, message.text)
+
+        await message.reply("Ваш вопрос отправлен участникам.")
+
+        # Отправляем вопрос в группу
+        bot_username = (await bot.me()).username
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Перейти в бота", url=f"https://t.me/{bot_username}")
+        ]])
+
+        question_msg = await bot.send_message(
+            GROUP_ID, f"<b>Вопрос от жениха!</b>\n\n{message.text}", reply_markup=keyboard)
+
+        # Закрепляем вопрос
+        try:
+            await bot.pin_chat_message(GROUP_ID, question_msg.message_id, disable_notification=True)
+            # Сохраняем ID закрепленного сообщения с вопросом
+            await db.save_pinned_message(active_game['game_id'], round_id, question_msg.message_id, 'question')
+        except Exception as e:
+            logging.error(f"Ошибка закрепления вопроса: {e}")
+
+        # Отправляем вопрос остальным участникам (только тем, кто не выбыл)
+        active_participants = [p for p in participants if not p['is_bride'] and not p['is_out']]
+        for participant in active_participants:
+            try:
+                await bot.send_message(
+                    participant['user_id'],
+                    f"<b>Вопрос от жениха!</b>\n{message.text}\n\nОтправьте свой ответ."
+                )
+            except Exception as e:
+                logging.error(f"Ошибка отправки вопроса участнику {participant['user_id']}: {e}")
+
+        # Отправляем статус ответов создателю игры
+        await send_status_message_to_creator(active_game['game_id'], round_id)
+
+    except Exception as e:
+        logging.error(f"Ошибка обработки вопроса жениха: {e}")
+        await message.reply("Произошла ошибка при обработке вопроса.")
+
+
+async def handle_participant_answer(message: types.Message, active_game: dict, participants: list, user_participant: dict):
+    """Обработка ответа участника на вопрос"""
+    try:
+        user_id = message.from_user.id
+        
+        # Получаем текущий раунд
+        current_round = await db.get_current_bride_round(active_game['game_id'])
+        if current_round:
+            await db.save_bride_answer(current_round['round_id'], user_id, message.text)
+            await message.reply("Ваш ответ отправлен. Дождитесь остальных участников.")
+
+            # Обновляем статус ответов для создателя игры
+            await update_status_message_for_creator(active_game['game_id'], current_round['round_id'])
+
+            # Сохраняем текущий статус ответов в БД
+            current_statuses = await db.get_all_participants_status(active_game['game_id'], current_round['round_id'])
+            await db.save_participant_status_snapshot(current_round['round_id'], current_statuses)
+
+            # Проверяем, все ли ответили
+            answers = await db.get_bride_answers(current_round['round_id'])
+            non_bride_participants = [p for p in participants if not p['is_bride'] and not p['is_out']]
+
+            if len(answers) == len(non_bride_participants):
+                # Открепляем вопрос
+                try:
+                    pinned_question = await db.get_pinned_message(current_round['round_id'], 'question')
+                    if pinned_question:
+                        await bot.unpin_chat_message(GROUP_ID, pinned_question)
+                except Exception as e:
+                    logging.error(f"Ошибка открепления вопроса: {e}")
+
+                # Все ответили, отправляем результаты в группу
+                results_message = ""
+
+                # Сортируем ответы по номерам участников
+                sorted_answers = sorted(answers, key=lambda x: x['number'])
+
+                for answer in sorted_answers:
+                    results_message += f"{answer['number']}\n{answer['answer']}\n\n"
+
+                answers_msg = await bot.send_message(GROUP_ID, results_message.strip())
+
+                # Закрепляем ответы
+                try:
+                    await bot.pin_chat_message(GROUP_ID, answers_msg.message_id, disable_notification=True)
+                    await db.save_pinned_message(active_game['game_id'], current_round['round_id'], answers_msg.message_id, 'answers')
+                except Exception as e:
+                    logging.error(f"Ошибка закрепления ответов: {e}")
+
+                # Отправляем сообщение о выборе
+                bot_username = (await bot.me()).username
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="Перейти в бота", url=f"https://t.me/{bot_username}")
+                ]])
+
+                await bot.send_message(GROUP_ID, "Жених должен выбрать кто выбывает.", reply_markup=keyboard)
+
+                # Отправляем жениху просьбу выбрать
+                bride_participant = next(p for p in participants if p['is_bride'])
+                await bot.send_message(
+                    bride_participant['user_id'],
+                    "Напишите число того участника, чей ответ вам понравился меньше всего."
+                )
+        else:
+            await message.reply("Нет активного раунда для ответа.")
+
+    except Exception as e:
+        logging.error(f"Ошибка обработки ответа участника: {e}")
+        await message.reply("Произошла ошибка при обработке ответа.")
+
+
+async def handle_bride_elimination_choice(message: types.Message, active_game: dict, participants: list, user_participant: dict):
+    """Обработка выбора жениха для исключения участника"""
+    try:
+        user_id = message.from_user.id
+        
+        # Проверяем, есть ли текущий раунд с полными ответами
+        current_round = await db.get_current_bride_round(active_game['game_id'])
+        if current_round:
+            # Проверяем, есть ли все ответы на текущий вопрос
+            answers = await db.get_bride_answers(current_round['round_id'])
+            non_bride_participants = [p for p in participants if not p['is_bride'] and not p['is_out']]
+
+            if len(answers) == len(non_bride_participants) and not current_round['voted_out']:
+                # Жених должен выбрать кого исключить
+                try:
+                    choice = int(message.text.strip())
+                    valid_numbers = [p['number'] for p in non_bride_participants if p['number'] is not None]
+
+                    if choice not in valid_numbers:
+                        await message.reply("Отправьте только число участника из списка.")
+                        return
+
+                    # Находим участника для исключения
+                    participant_to_exclude = next(p for p in non_bride_participants if p['number'] == choice)
+
+                    # Убеждаемся что user_id правильного типа
+                    exclude_user_id = int(participant_to_exclude['user_id'])
+                    round_id = int(current_round['round_id'])
+                    game_id = int(active_game['game_id'])
+
+                    # Исключаем участника
+                    await db.vote_out_participant(game_id, exclude_user_id, round_id)
+
+                    # Открепляем ответы
+                    try:
+                        pinned_answers = await db.get_pinned_message(round_id, 'answers')
+                        if pinned_answers:
+                            await bot.unpin_chat_message(GROUP_ID, pinned_answers)
+                    except Exception as e:
+                        logging.error(f"Ошибка открепления ответов: {e}")
+
+                    # Отправляем сообщение в группу
+                    await bot.send_message(GROUP_ID, f"<b>Выбывает номер: {choice}</b>")
+
+                    # Уведомляем исключенного участника
+                    await bot.send_message(participant_to_exclude['user_id'], "Вы выбыли. Дождитесь конца игры.")
+
+                    # Проверяем, остался ли только один участник
+                    remaining_participants = await db.get_bride_participants(active_game['game_id'])
+                    active_non_bride = [p for p in remaining_participants if not p['is_out'] and not p['is_bride']]
+
+                    if len(active_non_bride) == 1:
+                        # Игра окончена
+                        winner = active_non_bride[0]
+
+                        # Отправляем ответ жениху
+                        await message.reply(f"<b>Победил номер: {winner['number']}!</b>\nИгра окончена.")
+
+                        # Поздравляем победителя
+                        await bot.send_message(winner['user_id'], "<b>Поздравляю, вы выиграли!</b>\nИгра окончена.")
+
+                        # Раскрываем роли
+                        bride_user = await bot.get_chat(user_id)
+                        winner_user = await bot.get_chat(winner['user_id'])
+
+                        results_text = f"<b>Женихом был - {bride_user.full_name}\n</b>"
+                        results_text += f"<b>Победил номер - {winner['number']}</b>\n\n"
+
+                        # Перечисляем всех участников
+                        all_participants = await db.get_bride_participants(active_game['game_id'])
+                        for participant in sorted(all_participants, key=lambda x: x['number'] or 0):
+                            if participant['number'] and not participant['is_bride']:
+                                participant_user = await bot.get_chat(participant['user_id'])
+                                results_text += f"{participant['number']} - {participant_user.full_name}\n"
+
+                        await bot.send_message(GROUP_ID, results_text.strip())
+
+                        # Завершаем игру
+                        await db.finish_bride_game(active_game['game_id'])
+                    else:
+                        # Продолжаем игру - жених задает новый вопрос
+                        await message.reply("Отправьте следующий вопрос для оставшихся участников.")
+
+                except ValueError:
+                    await message.reply("Отправьте только число участника.")
+            else:
+                await message.reply("Нет активного раунда для выбора или не все участники ответили.")
+        else:
+            await message.reply("Нет активного раунда.")
+
+    except Exception as e:
+        logging.error(f"Ошибка обработки выбора жениха: {e}")
+        await message.reply("Произошла ошибка при обработке выбора.")
+
+
                 stats_message += "└ Никто не выбрал\n"
 
             stats_message += "\n"
@@ -1751,332 +1983,43 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                 (p for p in participants if p['user_id'] == user_id), None)
 
             if user_participant:
+                is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.is_bot
+                
                 # Проверяем, если это ответ на сообщение бота
-                if message.reply_to_message and message.reply_to_message.from_user.is_bot:
+                if is_reply_to_bot:
                     reply_text = message.reply_to_message.text or ""
 
                     # Если жених отвечает на запрос написать вопрос
-                    if user_participant['is_bride'] and any(phrase in reply_text for phrase in [
-                        "Напишите первый вопрос", "Отправьте следующий вопрос", 
-                        "напишите первый вопрос", "отправьте следующий вопрос"
+                    if user_participant['is_bride'] and any(phrase in reply_text.lower() for phrase in [
+                        "напишите первый вопрос", "отправьте следующий вопрос", 
+                        "вы выбраны женихом", "никому не говорите свою роль"
                     ]):
-                        # Обрабатываем как новый вопрос (код ниже)
-                        pass
+                        # Обрабатываем как новый вопрос от жениха
+                        await handle_bride_question(message, active_game, participants, user_participant)
+                        return
                     # Если участник отвечает на вопрос
-                    elif not user_participant['is_bride'] and any(phrase in reply_text for phrase in [
-                        "Вопрос от жениха", "Отправьте свой ответ", "вопрос от жениха", "отправьте свой ответ"
+                    elif not user_participant['is_bride'] and any(phrase in reply_text.lower() for phrase in [
+                        "вопрос от жениха", "отправьте свой ответ", "ожидайте вопрос от жениха"
                     ]):
-                        # Обрабатываем как ответ на вопрос (код ниже)
-                        pass
+                        # Обрабатываем как ответ на вопрос
+                        await handle_participant_answer(message, active_game, participants, user_participant)
+                        return
                     # Если жених отвечает на запрос выбрать участника
-                    elif user_participant['is_bride'] and any(phrase in reply_text for phrase in [
-                        "Напишите число того участника", "напишите число того участника"
+                    elif user_participant['is_bride'] and any(phrase in reply_text.lower() for phrase in [
+                        "напишите число того участника", "выбрать кого исключить"
                     ]):
-                        # Обрабатываем как выбор для исключения (код ниже)
-                        pass
-                # Если это жених и игра ожидает вопрос или новый вопрос
+                        # Обрабатываем как выбор для исключения
+                        await handle_bride_elimination_choice(message, active_game, participants, user_participant)
+                        return
+                # Если это жених - обрабатываем как вопрос или выбор
                 if user_participant['is_bride']:
-                    # Проверяем, не ждет ли игра выбора для исключения
-                    current_round = await db.get_current_bride_round(
-                        active_game['game_id'])
-                    if current_round:
-                        # Проверяем, есть ли все ответы на текущий вопрос
-                        answers = await db.get_bride_answers(
-                            current_round['round_id'])
-                        non_bride_participants = [
-                            p for p in participants
-                            if not p['is_bride'] and not p['is_out']
-                        ]
-
-                        if len(answers) == len(
-                                non_bride_participants
-                        ) and not current_round['voted_out']:
-                            # Жених должен выбрать кого исключить
-                            try:
-                                choice = int(message.text.strip())
-                                valid_numbers = [
-                                    p['number'] for p in non_bride_participants
-                                    if p['number'] is not None
-                                ]
-
-                                if choice not in valid_numbers:
-                                    await message.reply(
-                                        "Отправьте только число участника из списка."
-                                    )
-                                    return
-
-                                # Находим участника для исключения
-                                participant_to_exclude = next(
-                                    p for p in non_bride_participants
-                                    if p['number'] == choice)
-
-                                # Убеждаемся что user_id правильного типа
-                                exclude_user_id = int(
-                                    participant_to_exclude['user_id'])
-                                round_id = int(current_round['round_id'])
-                                game_id = int(active_game['game_id'])
-
-                                # Исключаем участника
-                                await db.vote_out_participant(
-                                    game_id, exclude_user_id, round_id)
-
-                                # Открепляем ответы
-                                try:
-                                    pinned_answers = await db.get_pinned_message(
-                                        round_id, 'answers')
-                                    if pinned_answers:
-                                        await bot.unpin_chat_message(
-                                            GROUP_ID, pinned_answers)
-                                except Exception as e:
-                                    logging.error(
-                                        f"Ошибка открепления ответов: {e}")
-
-                                # Отправляем сообщение в группу
-                                await bot.send_message(
-                                    GROUP_ID,
-                                    f"<b>Выбывает номер: {choice}</b>")
-
-                                # Уведомляем исключенного участника
-                                await bot.send_message(
-                                    participant_to_exclude['user_id'],
-                                    "Вы выбыли. Дождитесь конца игры.")
-
-                                # Проверяем, остался ли только один участник
-                                remaining_participants = await db.get_bride_participants(
-                                    active_game['game_id'])
-                                active_non_bride = [
-                                    p for p in remaining_participants
-                                    if not p['is_out'] and not p['is_bride']
-                                ]
-
-                                if len(active_non_bride) == 1:
-                                    # Игра окончена
-                                    winner = active_non_bride[0]
-
-                                    # Отправляем ответ жениху
-                                    await message.reply(
-                                        f"<b>Победил номер: {winner['number']}!</b>\nИгра окончена."
-                                    )
-
-                                    # Поздравляем победителя
-                                    await bot.send_message(
-                                        winner['user_id'],
-                                        "<b>Поздравляю, вы выиграли!</b>\nИгра окончена."
-                                    )
-
-                                    # Раскрываем роли
-                                    bride_user = await bot.get_chat(user_id)
-                                    winner_user = await bot.get_chat(
-                                        winner['user_id'])
-
-                                    results_text = f"<b>Женихом был - {bride_user.full_name}\n</b>"
-                                    results_text += f"<b>Победил номер - {winner['number']}</b>\n\n"
-
-                                    # Перечисляем всех участников
-                                    all_participants = await db.get_bride_participants(
-                                        active_game['game_id'])
-                                    for participant in sorted(
-                                            all_participants,
-                                            key=lambda x: x['number'] or 0):
-                                        if participant[
-                                                'number'] and not participant[
-                                                    'is_bride']:
-                                            participant_user = await bot.get_chat(
-                                                participant['user_id'])
-                                            results_text += f"{participant['number']} - {participant_user.full_name}\n"
-
-                                    await bot.send_message(
-                                        GROUP_ID, results_text.strip())
-
-                                    # Завершаем игру
-                                    await db.finish_bride_game(
-                                        active_game['game_id'])
-                                else:
-                                    # Продолжаем игру - жених задает новый вопрос
-                                    await message.reply(
-                                        "Отправьте следующий вопрос для оставшихся участников."
-                                    )
-
-                                return
-
-                            except ValueError:
-                                await message.reply(
-                                    "Отправьте только число участника.")
-                                return
-
-                    # Проверяем, есть ли незавершенный раунд
-                    current_round = await db.get_current_bride_round(
-                        active_game['game_id'])
-                    if current_round and not current_round['voted_out']:
-                        # Проверяем, все ли ответили на текущий вопрос
-                        answers = await db.get_bride_answers(
-                            current_round['round_id'])
-                        non_bride_participants = [
-                            p for p in participants
-                            if not p['is_bride'] and not p['is_out']
-                        ]
-
-                        if len(answers) < len(non_bride_participants):
-                            await message.reply(
-                                "Дождитесь, пока все участники ответят на текущий вопрос."
-                            )
-                            return
-                        elif not current_round['voted_out']:
-                            await message.reply(
-                                "Сначала выберите, кого исключить из текущего раунда."
-                            )
-                            return
-
-                    # Если это новый вопрос от жениха
-                    # Получаем текущий номер раунда
-                    existing_rounds = await db.get_bride_rounds(
-                        active_game['game_id'])
-                    round_number = len(existing_rounds) + 1
-
-                    # Создаем раунд и сохраняем вопрос
-                    round_id = await db.create_bride_round(
-                        active_game['game_id'], round_number, message.text)
-
-                    await message.reply("Ваш вопрос отправлен участникам.")
-
-                    # Отправляем вопрос в группу
-                    bot_username = (await bot.me()).username
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-                        InlineKeyboardButton(
-                            text="Перейти в бота",
-                            url=f"https://t.me/{bot_username}")
-                    ]])
-
-                    question_msg = await bot.send_message(
-                        GROUP_ID,
-                        f"<b>Вопрос от жениха!</b>\n\n{message.text}",
-                        reply_markup=keyboard)
-
-                    # Закрепляем вопрос
-                    try:
-                        await bot.pin_chat_message(GROUP_ID,
-                                                   question_msg.message_id,
-                                                   disable_notification=True)
-                        # Сохраняем ID закрепленного сообщения с вопросом
-                        await db.save_pinned_message(active_game['game_id'],
-                                                     round_id,
-                                                     question_msg.message_id,
-                                                     'question')
-                    except Exception as e:
-                        logging.error(f"Ошибка закрепления вопроса: {e}")
-
-                    # Отправляем вопрос остальным участникам (только тем, кто не выбыл)
-                    active_participants = [
-                        p for p in participants
-                        if not p['is_bride'] and not p['is_out']
-                    ]
-                    for participant in active_participants:
-                        try:
-                            await bot.send_message(
-                                participant['user_id'],
-                                f"<b>Вопрос от жениха!</b>\n{message.text}\n\n Отправьте свой ответ."
-                            )
-                        except Exception as e:
-                            logging.error(
-                                f"Ошибка отправки вопроса участнику {participant['user_id']}: {e}"
-                            )
-
-                    # Отправляем статус ответов создателю игры
-                    await send_status_message_to_creator(
-                        active_game['game_id'], round_id)
-
+                    await handle_bride_question(message, active_game, participants, user_participant)
                     return
 
-                # Если это не жених, сохраняем ответ
+                # Если это не жених - обрабатываем как ответ
                 elif not user_participant['is_bride']:
-                    # Получаем текущий раунд
-                    current_round = await db.get_current_bride_round(
-                        active_game['game_id'])
-                    if current_round:
-                        await db.save_bride_answer(current_round['round_id'],
-                                                   user_id, message.text)
-                        await message.reply(
-                            "Ваш ответ отправлен. Дождитесь остальных участников."
-                        )
-
-                        # Обновляем статус ответов для создателя игры
-                        await update_status_message_for_creator(
-                            active_game['game_id'], current_round['round_id'])
-
-                        # Сохраняем текущий статус ответов в БД
-                        current_statuses = await db.get_all_participants_status(
-                            active_game['game_id'], current_round['round_id'])
-                        await db.save_participant_status_snapshot(
-                            current_round['round_id'], current_statuses)
-
-                        # Проверяем, все ли ответили
-                        answers = await db.get_bride_answers(
-                            current_round['round_id'])
-                        non_bride_participants = [
-                            p for p in participants
-                            if not p['is_bride'] and not p['is_out']
-                        ]
-
-                        if len(answers) == len(non_bride_participants):
-                            # Открепляем вопрос
-                            try:
-                                pinned_question = await db.get_pinned_message(
-                                    current_round['round_id'], 'question')
-                                if pinned_question:
-                                    await bot.unpin_chat_message(
-                                        GROUP_ID, pinned_question)
-                            except Exception as e:
-                                logging.error(
-                                    f"Ошибка открепления вопроса: {e}")
-
-                            # Все ответили, отправляем результаты в группу
-                            results_message = ""
-
-                            # Сортируем ответы по номерам участников
-                            sorted_answers = sorted(answers,
-                                                    key=lambda x: x['number'])
-
-                            for answer in sorted_answers:
-                                results_message += f"{answer['number']}\n{answer['answer']}\n\n"
-
-                            answers_msg = await bot.send_message(
-                                GROUP_ID, results_message.strip())
-
-                            # Закрепляем ответы
-                            try:
-                                await bot.pin_chat_message(
-                                    GROUP_ID, answers_msg.message_id,
-                                    disable_notification=True)
-                                await db.save_pinned_message(
-                                    active_game['game_id'],
-                                    current_round['round_id'],
-                                    answers_msg.message_id, 'answers')
-                            except Exception as e:
-                                logging.error(
-                                    f"Ошибка закрепления ответов: {e}")
-
-                            # Отправляем сообщение о выборе
-                            bot_username = (await bot.me()).username
-                            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-                                InlineKeyboardButton(
-                                    text="Перейти в бота",
-                                    url=f"https://t.me/{bot_username}")
-                            ]])
-
-                            await bot.send_message(
-                                GROUP_ID,
-                                "Жених должен выбрать кто выбывает.",
-                                reply_markup=keyboard)
-
-                            # Отправляем жениху просьбу выбрать
-                            bride_participant = next(p for p in participants
-                                                     if p['is_bride'])
-                            await bot.send_message(
-                                bride_participant['user_id'],
-                                "Напишите число того участника, чей ответ вам понравился меньше всего."
-                            )
-
-                        return
+                    await handle_participant_answer(message, active_game, participants, user_participant)
+                    return
 
         # Обрабатываем только приватные сообщения или админские команды
         if message.chat.type != ChatType.PRIVATE:
