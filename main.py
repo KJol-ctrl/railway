@@ -469,7 +469,7 @@ async def handle_auf_ai(message: types.Message):
                 "role": "user",
                 "content": user_text
             }],
-            model="llama-3.1-70b-versatile",  # Меняем модель на более стабильную
+            model="llama-3.1-8b-instant",  # Меняем модель на более стабильную
             max_tokens=150,  # Уменьшаем лимит токенов
             temperature=0.8)
 
@@ -503,7 +503,7 @@ async def handle_auf_ai(message: types.Message):
 
         # Если ответ пустой после фильтрации, используем fallback
         if not ai_response or len(ai_response) < 3:
-            ai_response = "Понял! 🤖"
+            ai_response = "Понял!"
 
         # Ограничиваем длину ответа
         if len(ai_response) > 200:
@@ -548,7 +548,7 @@ async def handle_ai_reply(message: types.Message):
         # Отправляем запрос к Groq API с контекстом
         chat_completion = groq_client.chat.completions.create(
             messages=messages,
-            model="llama-3.1-70b-versatile",  # Меняем модель
+            model="llama-3.1-8b-instant",  # Меняем модель
             max_tokens=150,  # Уменьшаем лимит токенов
             temperature=0.8)
 
@@ -579,7 +579,7 @@ async def handle_ai_reply(message: types.Message):
         ai_response = ai_response.strip()
 
         if not ai_response or len(ai_response) < 3:
-            ai_response = "Понял! 🤖"
+            ai_response = "Понял!"
 
         # Ограничиваем длину ответа
         if len(ai_response) > 200:
@@ -1500,16 +1500,16 @@ async def launch_bride_game(message: types.Message, state: FSMContext):
         # Затем уведомляем жениха
         await bot.send_message(
             bride_id,
-            "<b>🤵 Вы выбраны женихом!</b>\n Не говорите свою роль. Напишите первый вопрос."
+            "<b>🤵 Вы выбраны женихом!</b>\n Никому не говорите свою роль. Напишите первый вопрос."
         )
 
         # Отправляем список участников ведущему (создателю игры)
         participants = await db.get_bride_participants(game_id)
-        creator_list = "<b>📋 Список участников:</b>\n\n"
+        creator_list = "<b>Список участников:</b>\n\n"
 
         # Получаем информацию о женихе
         bride_user = await bot.get_chat(bride_id)
-        creator_list += f"🤵 Жених: {bride_user.full_name}\n\n"
+        creator_list += f"Жених: {bride_user.full_name}\n\n"
 
         # Добавляем участников с номерами
         numbered_participants = [
@@ -1892,7 +1892,7 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                     round_id = await db.create_bride_round(
                         active_game['game_id'], round_number, message.text)
 
-                    await message.reply("📤 Ваш вопрос отправлен участникам.")
+                    await message.reply("Ваш вопрос отправлен участникам.")
 
                     # Отправляем вопрос в группу
                     bot_username = (await bot.me()).username
