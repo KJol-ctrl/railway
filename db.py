@@ -226,6 +226,16 @@ class Database:
                 );
             """)
 
+            # Добавляем колонку games_since_bride если она не существует
+            try:
+                await conn.execute("""
+                    ALTER TABLE bride_history 
+                    ADD COLUMN IF NOT EXISTS games_since_bride INTEGER DEFAULT 0
+                """)
+            except Exception:
+                # Игнорируем ошибку если колонка уже существует
+                pass
+
             # Таблица для закрепленных сообщений игры
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS bride_pinned_messages (
