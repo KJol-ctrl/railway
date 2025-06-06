@@ -465,7 +465,12 @@ async def handle_auf_ai(message: types.Message):
     user_text = message.text[4:].strip()
     if not user_text:
         return
-
+      
+    # Проверяем доступность Groq API
+    if not groq_client:
+        await message.reply("Нейросеть временно недоступна")
+        return
+      
     # Определяем промпт в зависимости от ID пользователя
     user_id = message.from_user.id
     if user_id in [5165944389, 1309019691]:
@@ -588,7 +593,7 @@ async def handle_ai_reply(message: types.Message):
         # Если ответ все еще содержит рассуждения, берем только последнее предложение
         if any(phrase in ai_response.lower() for phrase in ['хм,', 'согласно', 'итак,', 'мне нужно', 'важно']):
             sentences = re.split(r'[.!?]+', ai_response)
-            ai_response = sentences[-1].strip() if sentences and sentences[-1].strip() else "Понял! 🤖"
+            ai_response = sentences[-1].strip() if sentences and sentences[-1].strip() else "Понял!"
 
         ai_response = ai_response.strip()
 
