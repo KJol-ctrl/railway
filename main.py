@@ -480,10 +480,10 @@ async def handle_auf_ai(message: types.Message):
 
         # Убираем все что в кавычках после рассуждений
         ai_response = re.sub(r'^.*?(["\"].*?["\"]).*?$', r'\1', ai_response, flags=re.DOTALL)
-        
+
         # Убираем кавычки если они остались
         ai_response = ai_response.strip('"').strip("'").strip()
-        
+
         # Ищем последнюю строку после пустой строки (обычно там финальный ответ)
         lines = ai_response.split('\n')
         if len(lines) > 1:
@@ -559,10 +559,10 @@ async def handle_ai_reply(message: types.Message):
 
         # Убираем все что в кавычках после рассуждений
         ai_response = re.sub(r'^.*?(["\"].*?["\"]).*?$', r'\1', ai_response, flags=re.DOTALL)
-        
+
         # Убираем кавычки если они остались
         ai_response = ai_response.strip('"').strip("'").strip()
-        
+
         # Ищем последнюю строку после пустой строки
         lines = ai_response.split('\n')
         if len(lines) > 1:
@@ -1449,9 +1449,11 @@ async def launch_bride_game(message: types.Message, state: FSMContext):
             await message.reply("Для игры нужно минимум 3 участника.")
             return
 
-        # Выбираем случайного жениха из тех, кто еще не был женихом
+        # Получаем список подходящих кандидатов (кто не был женихом последние 2 игры)
         eligible_candidates = await db.get_eligible_bride_candidates(
             participants_ids)
+        
+        # Выбираем абсолютно случайного жениха из подходящих кандидатов
         bride_id = random.choice(eligible_candidates)
 
         # Отмечаем выбранного как жениха
@@ -1733,7 +1735,7 @@ async def handle_admin_response(message: types.Message, state: FSMContext):
                 # Проверяем, если это ответ на сообщение бота
                 if message.reply_to_message and message.reply_to_message.from_user.is_bot:
                     reply_text = message.reply_to_message.text or ""
-                    
+
                     # Если жених отвечает на запрос написать вопрос
                     if user_participant['is_bride'] and any(phrase in reply_text for phrase in [
                         "Напишите первый вопрос", "Отправьте следующий вопрос", 
@@ -2180,7 +2182,7 @@ async def send_status_message_to_creator(game_id: int, round_id: int):
         ]
         # Перемешиваем список участников случайным образом
         random.shuffle(active_participants)
-        
+
         for participant in active_participants:
             try:
                 participant_user = await bot.get_chat(participant['user_id'])
@@ -2247,7 +2249,7 @@ async def update_status_message_for_creator(game_id: int, round_id: int):
         ]
         # Перемешиваем список участников случайным образом
         random.shuffle(active_participants)
-        
+
         for participant in active_participants:
             try:
                 participant_user = await bot.get_chat(participant['user_id'])
