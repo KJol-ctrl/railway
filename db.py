@@ -513,14 +513,14 @@ class Database:
                 INSERT INTO bride_participants (game_id, user_id, number, is_bride)
                 VALUES ($1::BIGINT, $2::BIGINT, $3, $4)
             """, game_id, user_id, number, is_bride)
-            
+
             # Увеличиваем счетчик игр для всех участников (кроме жениха)
             if not is_bride:
                 await conn.execute("""
-                    INSERT INTO bride_history (user_id, games_since_bride)
-                    VALUES ($1::BIGINT, 1)
+                    INSERT INTO bride_history (user_id, was_bride_count, games_since_bride)
+                    VALUES ($1::BIGINT, 0, 1)
                     ON CONFLICT (user_id)
-                    DO UPDATE SET games_since_bride = bride_history.games_since_bride + 1
+                    DO UPDATE SET games_since_bride = COALESCE(bride_history.games_since_bride, 0) + 1
                 """, user_id)
 
     async def get_bride_rounds(self, game_id: int) -> List[Dict]:
@@ -784,8 +784,7 @@ class Database:
         async with self.pool.acquire() as conn:
             await conn.execute("""
                 DELETE FROM active_applications 
-                WHERE expires_at <= CURRENT_TIMESTAMP
-            """)
+                WHERE expires_at <= CURRENT_TIMESTAMP            """)
 
     async def save_application_internal(self, user_id: int, role: str):
         """Внутренний метод сохранения заявки"""
@@ -829,23 +828,27 @@ class Database:
         """Проверка, может ли пользователь быть женихом"""
         history = await self.get_bride_history(user_id)
         if history:
-            # Если пользователь был женихом и прошло меньше 3 игр - не может быть женихом
-            if history['was_bride_count'] > 0 and history['games_since_bride'] < 3:
+            # Получаем значения с проверкой на None
+            was_bride_count = history.get('was_bride_count', 0) or 0
+            games_since_bride = history.get('games_since_bride', 0) or 0
+            
+            # Если пользователь был женихом и прошло меньше 2 игр - не может быть женихом
+            if was_bride_count > 0 and games_since_bride < 2:
                 return False
-            # Если прошло 3 или больше игр - может быть женихом
+            # Если прошло 2 или больше игр - может быть женихом
             return True
         else:
             # Пользователь еще не был женихом
             return True
 
     async def get_eligible_bride_candidates(self, participants_ids: list) -> list:
-        """Получение списка подходящих кандидатов в женихи"""
+        """Получение списка подходящих кандидатов в женихи (абсолютно случайно, но с учетом истории)"""
         eligible = []
         for user_id in participants_ids:
             if await self.can_be_bride(user_id):
                 eligible.append(user_id)
 
-        # Если все уже были женихами, возвращаем всех участников
+        # Если все уже были женихами недавно, сбрасываем счетчики и возвращаем всех
         if not eligible:
             # Сбрасываем счетчики для всех участников
             for user_id in participants_ids:
@@ -949,20 +952,20 @@ class Database:
                 SELECT user_id FROM bride_participants 
                 WHERE game_id = $1::BIGINT AND is_bride = FALSE AND is_out = FALSE
             """, game_id)
-            
+
             # Получаем тех, кто ответил
             answered = await conn.fetch("""
                 SELECT user_id FROM bride_answers WHERE round_id = $1::BIGINT
             """, round_id)
-            
+
             answered_ids = {row['user_id'] for row in answered}
-            
+
             # Формируем словарь со статусами
             status_dict = {}
             for participant in participants:
                 user_id = participant['user_id']
                 status_dict[user_id] = user_id in answered_ids
-                
+
             return status_dict
 
     async def save_participant_status_snapshot(self, round_id: int, participant_statuses: Dict[int, bool]):
@@ -978,7 +981,7 @@ class Database:
                     PRIMARY KEY (round_id, user_id)
                 )
             """)
-            
+
             # Сохраняем статусы
             for user_id, has_answered in participant_statuses.items():
                 await conn.execute("""
@@ -1000,22 +1003,6 @@ class Database:
             except Exception:
                 # Таблица может не существовать, возвращаем пустой словарь
                 return {}
-
-    async def get_eligible_bride_candidates(self, participants_ids: list) -> list:
-        """Получение списка подходящих кандидатов в женихи"""
-        eligible = []
-        for user_id in participants_ids:
-            if await self.can_be_bride(user_id):
-                eligible.append(user_id)
-
-        # Если все уже были женихами, возвращаем всех участников
-        if not eligible:
-            # Сбрасываем счетчики для всех участников
-            for user_id in participants_ids:
-                await self.reset_bride_status(user_id)
-            eligible = participants_ids
-
-        return eligible
 
     async def mark_as_bride(self, user_id: int):
         """Отмечает пользователя как бывшего жениха"""
