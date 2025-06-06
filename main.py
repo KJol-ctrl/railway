@@ -12,6 +12,7 @@ import requests
 import os
 from functools import lru_cache
 import json
+from groq import Groq
 
 # Импортируем базу данных
 from db import db
@@ -31,6 +32,15 @@ GOOGLE_CX_ID = os.environ.get('GOOGLE_CX_ID')
 LIST_ADMIN_ID = tuple(
     int(id) for id in os.environ.get('LIST_ADMIN_ID', '').split(
         ',')) if os.environ.get('LIST_ADMIN_ID') else ()
+
+# Инициализация Groq клиента (используем бесплатный API ключ если доступен)
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
+groq_client = None
+if GROQ_API_KEY:
+    try:
+        groq_client = Groq(api_key=GROQ_API_KEY)
+    except Exception as e:
+        logging.error(f"Ошибка инициализации Groq: {e}")
 
 # Оптимизированная инициализация бота
 from aiogram.client.default import DefaultBotProperties
@@ -376,6 +386,51 @@ async def handle_keywords(message: types.Message):
     if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
         await message.reply("Все мои волки делают ауф ☝️🐺")
 
+@dp.message(lambda message: message.text and message.text.lower().startswith("ауф ") and len(message.text.split()) > 1)
+async def handle_auf_ai(message: types.Message):
+    """Обработчик для команд 'ауф <текст>' - отвечает нейросеть"""
+    if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        return
+
+    # Извлекаем текст после "ауф "
+    user_text = message.text[4:].strip()
+    if not user_text:
+        return
+
+    # Проверяем доступность Groq API
+    if not groq_client:
+        await message.reply("Нейросеть временно недоступна")
+        return
+
+    try:
+        # Отправляем запрос к Groq API
+        chat_completion = groq_client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Ты умный и дружелюбный помощник. Отвечай кратко, но содержательно. Используй эмодзи когда это уместно. Отвечай только на русском языке. Ты находишься в чате с людьми и должен отвечать с юмором (черный юмор и остальной разрешен). Сам ты находишься в флуде по тематике "хонкай стар рейл". Твое имя - бот "Auf Team"."
+                },
+                {
+                    "role": "user",
+                    "content": user_text
+                }
+            ],
+            model="llama-3.1-70b-versatile",  # Бесплатная и мощная модель
+            max_tokens=500,
+            temperature=0.7
+        )
+
+        ai_response = chat_completion.choices[0].message.content
+
+        # Ограничиваем длину ответа для Telegram
+        if len(ai_response) > 4000:
+            ai_response = ai_response[:4000] + "..."
+
+        await message.reply(f"{ai_response}")
+
+    except Exception as e:
+        logging.error(f"Ошибка при обращении к Groq API: {e}")
+        await message.reply("Произошла ошибка при обработке запроса")
 
 @dp.message(F.text.casefold().startswith("засосать"))
 async def kiss_handler(message: types.Message):
